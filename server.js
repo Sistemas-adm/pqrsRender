@@ -2,19 +2,19 @@ require("dotenv").config();
 const express = require("express");
 const mysql = require("mysql2/promise");
 const fs = require("fs");
+const session = require("express-session");
+
+const MySQLStore = require("express-mysql-session")(session);
 
 const path = require("path");
 const cors = require("cors");
 const multer = require("multer");
-const session = require("express-session");
 const nodemailer = require("nodemailer");
 const bcrypt = require("bcrypt");
 const ExcelJS = require("exceljs");
 const saltRounds = 10;
-
+const helmet = require("helmet");
 const app = express();
-
-
 
 /* ---------- NUEVO: confiar en proxy (Render) y CORS por variable ---------- */
 
@@ -22,39 +22,69 @@ app.set("trust proxy", 1); // cookies secure detrás de proxy (Render/Nginx)
 
 const allowed = (process.env.CORS_ORIGIN || "")
   .split(",")
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin || allowed.length === 0 || allowed.includes(origin)) return cb(null, true);
-    return cb(new Error("CORS blocked"));
-  },
-  credentials: true
-}));
+// CORS más estricto: si no hay CORS_ORIGIN, no se permite desde otros orígenes
+const allowAllIfEmpty = false;
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // llamadas del mismo origen / curl sin origin
+      if (!origin) return cb(null, true);
+      if (allowed.length === 0 && !allowAllIfEmpty)
+        return cb(new Error("CORS blocked"));
+      return allowed.includes(origin)
+        ? cb(null, true)
+        : cb(new Error("CORS blocked"));
+    },
+    credentials: true,
+    exposedHeaders: ["Content-Disposition"], // <- para leer el nombre del archivo si usas fetch
+
+  })
+);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+const helmetOptions = {};
+if (process.env.UPLOADS_CROSS_ORIGIN === "1") {
+  // permite que otros dominios consuman /uploads (si tu frontend está en otro origen)
+  helmetOptions.crossOriginResourcePolicy = { policy: "cross-origin" };
+}
+app.use(helmet(helmetOptions));
+// ⬆️  FIN del bloque de helmet
 
+const sessionStore = new MySQLStore({
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT || 3306),
+  user: process.env.DB_USER,
+  password: process.env.DB_PASS,
+  database: process.env.DB_NAME,
+  createDatabaseTable: true, // crea tabla "sessions" si no existe
+  clearExpired: true,
+  checkExpirationInterval: 15 * 60 * 1000, // 15 min
+  expiration: 7 * 24 * 60 * 60 * 1000, // 7 días
+});
 
 /* ---------- SESIONES (ajusta cookie para producción y posible cross-site) ---------- */
-
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "change-me",
     resave: false,
     saveUninitialized: false,
+    store: sessionStore, // ⬅️ usar MySQL
     cookie: {
-      maxAge: 3600000, // 1h
-      secure: process.env.NODE_ENV === "production", // true en Render
-      sameSite: process.env.COOKIE_SAMESITE || "lax" // usa "none" si el frontend está en otro dominio y necesitas enviar cookies cross-site
+      maxAge: 3600000,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.COOKIE_SAMESITE || "lax",
     },
   })
 );
 
 /* ---------- NUEVO: uploads a carpeta configurable y servida estáticamente ---------- */
 // En Render el FS es efímero; usa disco persistente y apunta UPLOAD_DIR, ej: /data/uploads
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "public/form/uploads");
+const UPLOAD_DIR =
+  process.env.UPLOAD_DIR || path.join(__dirname, "public/form/uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // Multer
@@ -63,13 +93,30 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 
-const upload = multer({ storage });
-
-
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allow = [
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ];
+    if (allow.includes(file.mimetype)) return cb(null, true);
+    const byExt = /\.(pdf|png|jpe?g|docx?|xlsx?)$/i.test(
+      file.originalname || ""
+    );
+    return cb(byExt ? null : new Error("Tipo de archivo no permitido"), byExt);
+  },
+});
 // Servir los adjuntos aunque estén fuera de /public
-
 app.use("/uploads", express.static(UPLOAD_DIR));
-
+app.use("/", express.static(path.join(__dirname, "public/form")));
+// ...
 
 // MySQL
 const pool = mysql.createPool({
@@ -80,7 +127,7 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
-  ...(process.env.DB_SSL === "1" ? { ssl: { rejectUnauthorized: true } } : {})
+  ...(process.env.DB_SSL === "1" ? { ssl: { rejectUnauthorized: true } } : {}),
 });
 
 // Nodemailer
@@ -107,7 +154,9 @@ app.get("/api/db-ping", async (req, res) => {
 async function gateDashboard(req, res, next) {
   if (!req.session?.userId) return res.redirect("/auth/index.html");
   try {
-    const [[u]] = await pool.query("SELECT activo FROM usuarios WHERE id = ?", [req.session.userId]);
+    const [[u]] = await pool.query("SELECT activo FROM usuarios WHERE id = ?", [
+      req.session.userId,
+    ]);
     if (!u || u.activo !== 1) {
       req.session.destroy(() => {});
       return res.redirect("/auth/index.html");
@@ -119,21 +168,28 @@ async function gateDashboard(req, res, next) {
   }
 }
 
-
 // Estáticos
 app.use("/", express.static(path.join(__dirname, "public/form")));
 app.use("/auth", express.static(path.join(__dirname, "public/auth")));
-app.use("/dashboard", gateDashboard, express.static(path.join(__dirname, "public/dashboard")));
+app.use(
+  "/dashboard",
+  gateDashboard,
+  express.static(path.join(__dirname, "public/dashboard"))
+);
 
 async function ensureAuth(req, res, next) {
   if (!req.session?.userId) {
     return res.status(401).json({ success: false, message: "No autorizado" });
   }
   try {
-    const [[u]] = await pool.query("SELECT activo FROM usuarios WHERE id = ?", [req.session.userId]);
+    const [[u]] = await pool.query("SELECT activo FROM usuarios WHERE id = ?", [
+      req.session.userId,
+    ]);
     if (!u || u.activo !== 1) {
       req.session.destroy(() => {});
-      return res.status(403).json({ success: false, message: "Usuario inactivo" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Usuario inactivo" });
     }
     next();
   } catch (e) {
@@ -157,32 +213,42 @@ app.post("/api/login", async (req, res) => {
     );
 
     if (rows.length !== 1) {
-      return res.status(401).json({ success: false, message: "Credenciales inválidas" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Credenciales inválidas" });
     }
 
     const u = rows[0];
 
     // 1) Bloquear inactivo
     if (u.activo !== 1) {
-      return res.status(403).json({ success: false, message: "Usuario inactivo" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Usuario inactivo" });
     }
 
     // 2) Verificar contraseña
     const match = await bcrypt.compare(clave, u.clave_hash);
     if (!match) {
-      return res.status(401).json({ success: false, message: "Credenciales inválidas" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Credenciales inválidas" });
     }
 
     // 3) Bloquear si no tiene rol asignado
     if (!u.rol_id || !u.rol) {
-      return res.status(403).json({ success: false, message: "Usuario sin rol asignado" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Usuario sin rol asignado" });
     }
 
     // 4) Regenerar sesión y setear datos
     req.session.regenerate((err) => {
       if (err) {
         console.error("Error al regenerar sesión:", err);
-        return res.status(500).json({ success: false, message: "Error de servidor" });
+        return res
+          .status(500)
+          .json({ success: false, message: "Error de servidor" });
       }
       req.session.userId = u.id;
       req.session.rol_id = u.rol_id;
@@ -196,13 +262,11 @@ app.post("/api/login", async (req, res) => {
         user_id: u.id,
       });
     });
-
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false, message: e.message });
   }
 });
-
 
 // CREAR USUARIO (ADMIN/ANALISTA)
 app.post("/api/usuarios", ensureAuth, async (req, res) => {
@@ -241,7 +305,12 @@ app.post("/api/logout", (req, res) => {
       console.error(err);
       return res.sendStatus(500);
     }
-    res.clearCookie("connect.sid", { path: "/" });
+    res.clearCookie("connect.sid", {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.COOKIE_SAMESITE || "lax",
+    });
     res.sendStatus(200);
   });
 });
@@ -265,7 +334,7 @@ app.post("/api/submit", upload.single("adjunto"), async (req, res) => {
     ];
     const valores = campos.map((c) => req.body[c] || "");
     const archivoNombre = req.file?.originalname || null;
-    const archivoRuta = req.file ? `uploads/${req.file.filename}` : null;
+    const archivoRuta = req.file ? `/uploads/${req.file.filename}` : null;
     valores.push(archivoNombre, archivoRuta);
 
     const sql = `INSERT INTO respuestas_formulario
@@ -428,13 +497,13 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
       FROM respuestas_formulario rf
       LEFT JOIN usuarios u ON u.id = rf.enviado_por_id
     `);
-    
 
     // Traer los usuarios para poder mapear analista/responsable
     const [usuarios] = await pool.query("SELECT id, nombre FROM usuarios");
-const usuariosMap = {};
-usuarios.forEach((u) => { usuariosMap[u.id] = u.nombre; });
-
+    const usuariosMap = {};
+    usuarios.forEach((u) => {
+      usuariosMap[u.id] = u.nombre;
+    });
 
     // Definir columnas en el mismo orden que diste
     const columnas = [
@@ -479,7 +548,7 @@ usuarios.forEach((u) => { usuariosMap[u.id] = u.nombre; });
       "respuesta_al_area_encargada_reasignacion",
       "fecha_respuesta_responsable_reasignacion",
       "mensaje_paciente",
-      "fecha_envio_paciente",                // en tu tabla
+      "fecha_envio_paciente", // en tu tabla
       "enviado_por_nombre",
       "vencido",
     ];
@@ -487,7 +556,6 @@ usuarios.forEach((u) => { usuariosMap[u.id] = u.nombre; });
     // Crear libro y hoja
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Respuestas");
-
 
     // Definir encabezados
     worksheet.columns = columnas.map((key) => ({
@@ -511,7 +579,7 @@ usuarios.forEach((u) => { usuariosMap[u.id] = u.nombre; });
     });
 
     // Configura headers para descarga
-    const fecha = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const fecha = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -585,8 +653,9 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
       nuevoEstado === "resuelta" && anteriorEstado !== "resuelta";
     const esReapertura =
       anteriorEstado === "resuelta" && nuevoEstado !== "resuelta";
+    // Corrección: notificar cuando pase de RESUELTA -> EN GESTION
     const esEnGestionTransition =
-      anteriorEstado === "en gestion" && nuevoEstado === "finalizada";
+      anteriorEstado === "resuelta" && nuevoEstado === "en gestion";
 
     // Si estaba resuelta y sigue resuelta: sólo ciertos roles pueden editar estado (early return)
     if (anteriorEstado === "resuelta" && nuevoEstado === "resuelta") {
@@ -756,22 +825,21 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
           text: `Hola ${responsableFinal.nombre},\n\nLa PQRS SAC${seq} ha sido marcada como finalizada.\n\nGracias.`,
         });
       }
-    } else if (esEnGestionTransition && anteriorEstado === "resuelta") {
-  // Avisar al responsable que la PQRS pasó a "en gestion" solo si venía de finalizada
-  const [[responsableGestion]] = await pool.query(
-    "SELECT nombre, correo FROM usuarios WHERE id=?",
-    [responsable]
-  );
-  if (responsableGestion) {
-    await transporter.sendMail({
-      from: process.env.SMTP_USER,
-      to: responsableGestion.correo,
-      subject: `PQRS en gestión SAC${seq}`,
-      text: `Hola ${responsableGestion.nombre},\n\nLa PQRS SAC${seq} ha cambiado su estado a "En gestión".\n\nGracias.`,
-    });
-  }
-}
- else {
+    } else if (esEnGestionTransition) {
+      // Avisar al responsable que la PQRS pasó a "en gestion" solo si venía de finalizada
+      const [[responsableGestion]] = await pool.query(
+        "SELECT nombre, correo FROM usuarios WHERE id=?",
+        [responsable]
+      );
+      if (responsableGestion) {
+        await transporter.sendMail({
+          from: process.env.SMTP_USER,
+          to: responsableGestion.correo,
+          subject: `PQRS en gestión SAC${seq}`,
+          text: `Hola ${responsableGestion.nombre},\n\nLa PQRS SAC${seq} ha cambiado su estado a "En gestión".\n\nGracias.`,
+        });
+      }
+    } else {
       // Flujos normales (no es transición especial)
       if (respuesta_al_area_encargada_reasignacion) {
         const [[analistaReasig]] = await pool.query(
@@ -841,7 +909,6 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
 // Endpoint: Enviar mensaje al paciente
 // Endpoint: Enviar mensaje al paciente
 
-
 app.post(
   "/api/enviar-paciente",
   ensureAuth,
@@ -865,7 +932,7 @@ app.post(
       // 1) Guardar mensaje
       await pool.query(
         "UPDATE respuestas_formulario SET mensaje_paciente=?, fecha_envio_paciente=NOW(), enviado_por_id=? WHERE seq = ?",
-        [mensaje,req.session.userId, seq]
+        [mensaje, req.session.userId, seq]
       );
 
       // 2) Datos del paciente
@@ -933,7 +1000,13 @@ Gracias por comunicarse con nosotros.`;
           path: req.file.path,
         });
       }
-      const firmaPath = path.join(__dirname, "public", "auth", "files", "Firma de PQRS.jpg");
+      const firmaPath = path.join(
+        __dirname,
+        "public",
+        "auth",
+        "files",
+        "Firma de PQRS.jpg"
+      );
       if (fs.existsSync(firmaPath)) {
         attachments.push({
           filename: "firma-pqrs.jpg",
@@ -998,7 +1071,10 @@ app.get("/api/buscar-usuario", ensureAuth, async (req, res) => {
     return res.status(403).json({ success: false, message: "No autorizado" });
   }
   const { q } = req.query;
-  if (!q) return res.status(400).json({ success: false, message: "Falta query de búsqueda" });
+  if (!q)
+    return res
+      .status(400)
+      .json({ success: false, message: "Falta query de búsqueda" });
   // Puedes ajustar el WHERE según lo que necesites
   const [rows] = await pool.query(
     `SELECT id, usuario, nombre, correo, rol_id, sede, activo
@@ -1006,7 +1082,8 @@ app.get("/api/buscar-usuario", ensureAuth, async (req, res) => {
      WHERE usuario = ? OR correo = ? OR nombre LIKE ?`,
     [q, q, `%${q}%`]
   );
-  if (!rows.length) return res.status(404).json({ success: false, message: "No encontrado" });
+  if (!rows.length)
+    return res.status(404).json({ success: false, message: "No encontrado" });
   res.json(rows[0]);
 });
 // Cambia el estado activo (1 = activo, 0 = inactivo)
@@ -1019,9 +1096,16 @@ app.patch("/api/inactivar-usuario/:id", ensureAuth, async (req, res) => {
   if (typeof activo === "undefined") {
     return res.status(400).json({ success: false, message: "Falta estado" });
   }
-  const [r] = await pool.query("UPDATE usuarios SET activo=? WHERE id=?", [activo ? 1 : 0, id]);
-  if (!r.affectedRows) return res.status(404).json({ success: false, message: "No encontrado" });
-  res.json({ success: true, message: activo ? "Usuario activado" : "Usuario inactivado" });
+  const [r] = await pool.query("UPDATE usuarios SET activo=? WHERE id=?", [
+    activo ? 1 : 0,
+    id,
+  ]);
+  if (!r.affectedRows)
+    return res.status(404).json({ success: false, message: "No encontrado" });
+  res.json({
+    success: true,
+    message: activo ? "Usuario activado" : "Usuario inactivado",
+  });
 });
 
 // Modificar datos personales de un usuario (sólo Admin/Analista)
@@ -1052,14 +1136,21 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
   }
 });
 
-
 /* ---------- Start ---------- */
 const PORT = Number(process.env.PORT || 1000);
 
 // al final, antes del app.listen:
 app.use((err, req, res, next) => {
   if (err && err.message === "CORS blocked") {
-    return res.status(403).json({ success: false, message: "Origen no permitido por CORS" });
+    return res
+      .status(403)
+      .json({ success: false, message: "Origen no permitido por CORS" });
+  }
+  if (err && err.message === "Tipo de archivo no permitido") {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+  if (err && err.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({ success: false, message: "Archivo supera el límite (10MB)" });
   }
   next(err);
 });
