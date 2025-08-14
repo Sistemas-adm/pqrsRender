@@ -1,0 +1,306 @@
+/* --- RESET & FUENTES --- */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+body {
+  background: #f6fbff;
+  color: #222b36;
+  font-family: 'Poppins', sans-serif;
+  font-size: 1rem; /* Más pequeño */
+  min-height: 100vh;
+}
+
+.contenido {
+  width: 100%;
+  max-width: 950px;  /* Más angosto */
+  margin: 22px auto 0 auto;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 2px 12px rgba(67,107,175,0.09);
+  padding: 18px 14px 18px 14px;
+  overflow: visible;
+}
+
+h1#tituloTipificar {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #003366;
+  margin-bottom: 8px;
+  margin-top: 0;
+}
+
+.tipificar-form {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 0.97rem;
+}
+
+/* --- ACORDEÓN SUAVE Y FLUIDO --- */
+.bloque-acordeon {
+  background: #f3f6fa;
+  border-radius: 11px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 4px #d6e3fa22;
+  border: 1px solid #e6eef9;
+  transition: box-shadow 0.17s;
+}
+
+.bloque-titulo {
+  padding: 10px 24px 10px 12px;
+  font-weight: 600;
+  font-size: 1em;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  color: #000000;
+  letter-spacing: 0.01em;
+  transition: background 0.13s;
+  border-radius: 11px 11px 0 0;
+}
+
+.bloque-titulo:hover,
+.bloque-acordeon.open .bloque-titulo {
+  background: #e3eefd;
+}
+.bloque-titulo::after {
+  content: '▼';
+  position: absolute;
+  right: 14px;
+  font-size: 1em;
+  top: 50%;
+  transform: translateY(-50%) rotate(0deg);
+  transition: transform 0.28s cubic-bezier(.61,.27,.33,1.01);
+  color: #2772bc;
+}
+.bloque-acordeon:not(.open) .bloque-titulo::after {
+  transform: translateY(-50%) rotate(-90deg);
+  opacity: 0.38;
+}
+
+.bloque-cuerpo {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.66s cubic-bezier(.61,.27,.33,1.01), opacity 0.44s;
+  opacity: 0;
+  padding: 0 16px;
+  will-change: max-height, opacity;
+}
+
+.bloque-acordeon.open .bloque-cuerpo {
+  max-height: 1000px; /* Ajusta según lo máximo que puede medir tu bloque abierto */
+  opacity: 1;
+  padding: 8px 16px 6px 12px;
+  pointer-events: auto;
+}
+
+/* --- LAYOUT DEL FORM --- */
+.grid-dos-columnas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 20px; /* Menos espacio entre campos */
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 4px;
+}
+.form-group label {
+  margin-bottom: 2px;
+  font-weight: 600;
+  color: #000000;
+  letter-spacing: 0.01em;
+  font-size: 0.97em;
+}
+.form-group input,
+.form-group select,
+.form-group textarea {
+  border: 1.1px solid #c5d7ef;
+  border-radius: 9px;
+  padding: 7px 8px;
+  font-family: inherit;
+  font-size: 0.98em;
+  background: #f7fbff;
+  color: #003366;
+  outline: none;
+  transition: border 0.16s, box-shadow 0.14s;
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: #488af3;
+  box-shadow: 0 2px 6px #3d80ed18;
+}
+.form-group input[readonly],
+.form-group textarea[readonly] {
+  background: #ecf2f8;
+  color: #6982a3;
+}
+
+.form-group textarea {
+  min-height: 38px;
+  resize: vertical;
+}
+
+/* --- BOTONES --- */
+.form-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.btn {
+  padding: 7px 18px;
+  border-radius: 10px;
+  border: none;
+  font-size: 1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.17s, box-shadow 0.18s, color 0.17s;
+  box-shadow: 0 1px 4px #d3e5fa36;
+  letter-spacing: 0.01em;
+}
+
+/* Botón principal (Buscar, azul) */
+.btn-primary {
+  background: #5aaaff;
+  color: #fff;
+  border: none;
+}
+.btn-primary:hover {
+  background: #378be8;
+}
+
+/* Botón secundario (Limpiar, blanco con azul) */
+.btn-secondary {
+  background: #f5f7fa;
+  color: #2283f6;
+  border: 1.5px solid #e3e8f0;
+}
+.btn-secondary:hover {
+  background: #e6ecf5;
+  color: #1765c1;
+  border-color: #b5c6e0;
+}
+
+
+/* --- ACCESIBILIDAD Y RESPONSIVE --- */
+@media (max-width: 850px) {
+  .contenido {
+    padding: 8px 2vw;
+  }
+  .grid-dos-columnas {
+    grid-template-columns: 1fr;
+    gap: 10px 0;
+  }
+}
+@media (max-width: 530px) {
+  h1#tituloTipificar {
+    font-size: 1rem;
+  }
+  .contenido {
+    padding: 2vw 0.5vw;
+  }
+  .tipificar-form {
+    font-size: 0.93em;
+  }
+}
+
+
+/* Estilos para textarea del mensaje guardado */
+.mensaje-guardado,
+#mensajePacienteGuardado {
+  width: 100%;
+  min-height: 48px;
+  max-width: 100%;
+  resize: none;
+  border-radius: 6px;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 1em;
+  background: #f8f8f8;
+  border: 1px solid #d2d8e2;
+  color: #333;
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+/* Estilos de paginación */
+#paginacion, #paginacionGestion, #paginacionFinalizadas {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1em;
+  margin-top: 1em;
+}
+
+#paginacion button,
+#paginacionGestion button,
+#paginacionFinalizadas button {
+  padding: 5px 18px;
+  border-radius: 4px;
+  border: none;
+  background: #3173fa;
+  color: #fff;
+  font-weight: 500;
+  cursor: pointer;
+  transition: 0.18s;
+}
+
+#paginacion button:disabled,
+#paginacionGestion button:disabled,
+#paginacionFinalizadas button:disabled {
+  background: #bfc5cc;
+  color: #666;
+  cursor: not-allowed;
+}
+
+/* --- FIN --- */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+.loader-overlay {
+  display: none;
+  position: fixed;
+  z-index: 9999;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(243,247,254,0.92);  /* Azul muy claro */
+  justify-content: center;
+  align-items: center;
+  font-family: 'Poppins', sans-serif;
+}
+
+.loader-content {
+  background: #fff;
+  padding: 2.5rem 3rem;
+  border-radius: 1.3rem;
+  box-shadow: 0 4px 32px rgba(32, 64, 181, 0.10);
+  font-size: 1.35rem;
+  color: #2242a7;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.loader-spinner {
+  border: 7px solid #e6edfa;              /* Fondo del loader */
+  border-top: 7px solid #4679ee;           /* Azul primario */
+  border-right: 7px solid #2242a7;         /* Azul oscuro */
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg);}
+  100% { transform: rotate(360deg);}
+}
+
+.loader-content span {
+  font-family: 'Poppins', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #2242a7;
+  letter-spacing: 0.5px;
+  margin-top: 0.5rem;
+}

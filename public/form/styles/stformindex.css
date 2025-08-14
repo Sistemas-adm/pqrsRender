@@ -1,0 +1,248 @@
+/* 1. Reseteo y box-sizing */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* 2. Body centrado */
+body {
+  background: #f0f2f5;
+  font-family: 'Poppins', sans-serif;
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* 3. Contenedor principal */
+.container {
+  width: 100%;
+  max-width: 960px;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 4. Presentación */
+#presentacion {
+  text-align: center;
+  padding: 24px;
+}
+#presentacion img {
+  display: block;
+  margin: 0 auto 16px;
+  width: 30%;
+  max-width: 400px;
+  border-radius: 50px;
+ 
+}
+#presentacion h1 {
+  margin-bottom: 8px;
+  font-size: 1.5rem;
+  color: #003366;
+}
+#presentacion p {
+  color: #333;
+}
+#obligatorio {
+  font-size: 13px;
+  margin-top: 8px;
+  color: #555;
+}
+
+/* 5. Sección de formulario */
+#contenido {
+  padding: 24px;
+  font-size: 14px;
+}
+
+/* 6. Campos full-width */
+.campo-full {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.campo-full select,
+.campo-full input,
+.campo-full textarea {
+  margin-top: 4px;
+}
+
+
+.campo-full label{
+  margin-top: 15px;
+}
+
+/* 7. Inputs, select y textarea */
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="email"],
+input[type="file"],
+select,
+textarea {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #b6b4b4;
+  border-radius: 25px;
+  font-size: 14px;
+  font-family: inherit;
+}
+textarea {
+  
+  height: 120px;
+  resize: vertical;
+}
+
+/* 8. Flex-containers */
+#contenedor1,
+#ubicacion,
+#contenedor2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* 9. Cada campo (50% ancho) */
+.campo {
+  flex: 1 1 calc(50% - 16px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 10. Etiquetas */
+label {
+
+  margin-bottom: 4px;
+  font-weight: bold;
+}
+
+/* 11. Separador */
+hr {
+  border: none;
+  background: #cbdaea;
+  height: 4px;
+  margin: 24px 0;
+  border-radius: 2px;
+}
+
+/* 12. Nota legal */
+#recomendacion {
+  font-size: 13px;
+  margin: 16px 0;
+}
+#recomendacion a {
+  color: #0077cc;
+  text-decoration: none;
+}
+
+/* 13. Botón */
+#enviar {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  border: none;
+  border-radius: 25px;
+  background: #003366;
+  color: #fff;
+  cursor: pointer;
+}
+
+/* 14. Responsive (≤768px) */
+@media (max-width: 768px) {
+  /* Todos los campos pasan a 100% */
+  .campo-full,
+  .campo {
+    flex: 1 1 100%;
+  }
+  #presentacion {
+    padding: 16px;
+  }
+  #presentacion h1 {
+    font-size: 1.2rem;
+  }
+}
+
+/* */
+/* Resaltar labels con errores */
+.error-label {
+  color: #e74c3c !important; /* rojo */
+  font-weight: bold !important; /* negrita */
+}
+
+/* Resaltar campos con errores */
+.error-campo {
+  border-color: #e74c3c !important;
+  box-shadow: 0 0 5px rgba(231, 76, 60, 0.5) !important;
+}
+/* ────────────────────────────────────────────────────────────
+   Banner de éxito (permanece visible hasta pulsar ✕)
+───────────────────────────────────────────────────────────────*/
+#mensaje-exito {
+  /* 1. Oculto por defecto; se muestra añadiendo .show con JS */
+  display: none;
+  opacity: 0;
+  pointer-events: none;        /* evita clics mientras está oculto */
+
+  /* 2. Posición centrada arriba */
+  position: fixed;
+  top: 1.25rem;                /* 20 px */
+  left: 50%;
+  transform: translateX(-50%);
+
+  /* 3. Caja */
+  max-width: 90vw;
+  background-color: #d1fae5;   /* verde pastel  */
+  border: 1px solid #047857;   /* verde oscuro  */
+  border-radius: 10px;
+  padding: 1rem 2.5rem;
+  box-shadow: 0 4px 10px rgba(0,0,0,.15);
+
+  /* 4. Tipografía */
+  font-family: "Poppins", Arial, sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #047857;
+
+  /* 5. Animación */
+  transition: opacity .4s ease, transform .4s ease;
+  z-index: 9999;
+}
+
+/* Estado visible */
+#mensaje-exito.show {
+  display: block;
+  opacity: 1;
+  transform: translate(-50%, 0); /* ligera subida */
+  pointer-events: auto;          /* ahora sí captura clics */
+}
+
+/* Botón de cierre (✕) */
+#mensaje-exito .close-btn {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  border: none;
+  background: transparent;
+  font-size: 1.125rem;          /* ≈18 px */
+  color: inherit;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+/* Botón accesible al teclado */
+#mensaje-exito .close-btn:focus {
+  outline: 2px solid #047857;
+  outline-offset: 2px;
+}
+
+/* Responsive: reducir padding y tamaño de fuente en pantallas estrechas */
+@media (max-width: 480px) {
+  #mensaje-exito {
+    padding: 0.75rem 1.25rem;
+    font-size: 0.9rem;
+  }
+}

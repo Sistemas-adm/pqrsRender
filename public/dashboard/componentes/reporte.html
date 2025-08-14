@@ -1,0 +1,505 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+  /* Reset y tipografía */
+  body,
+  .container,
+  .reporte-col,
+  .btn-exportar-excel,
+  button,
+  input,
+  select,
+  table,
+  th,
+  td {
+    font-family: 'Poppins', Arial, sans-serif !important;
+    box-sizing: border-box;
+  }
+
+  body {
+    background: #f6f8fa;
+  }
+
+  .container {
+    width: 98%;
+    margin: 32px auto 0 auto;
+  }
+
+  /* ====== 2 COLUMNAS SUPERIOR ====== */
+  .reporte-row-flex {
+    display: flex;
+    gap: 32px;
+    margin: 16px 0 32px;
+    align-items: stretch;
+  }
+
+  .reporte-col,
+  .reporte-col-btn {
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 40px;
+    min-width: 280px;
+    max-width: 50%;
+    padding: 0;
+    background: #003366;
+    min-height: 48px;
+    box-shadow: 0 2px 9px #ddeafe28;
+  }
+
+  /* ====== BOTONES PRINCIPALES ====== */
+  .btn-exportar-excel {
+    min-width: 280px;
+    width: 100%;
+    background: #003366;
+    color: #fff !important;
+    font-size: 1.08em;
+    font-weight: 600;
+    border: none;
+    border-radius: 40px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: background 0.18s;
+  }
+
+  .btn-exportar-excel:hover {
+    background: #12407a;
+  }
+
+  /* ====== FILTROS ====== */
+  .filtros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    background: #f5f8fd;
+    border-radius: 14px;
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px #ddeafe28;
+    border: 1.5px solid #e5eaf2;
+    width: 100%;
+    max-width: 1000px;
+  }
+
+  .filtros .campo {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 140px;
+  }
+
+  .filtros .campo label {
+    font-size: 0.75em;
+    color: #334e78;
+    font-weight: 600;
+  }
+
+  .filtros input[type="text"],
+  .filtros input[type="date"] {
+    padding: 8px 12px;
+    border: 1.2px solid #c8d4ea;
+    border-radius: 12px;
+    background: #fff;
+    color: #003366;
+    height: 38px;
+    font-size: 0.95em;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .filtros input:focus {
+    border-color: #3b82f6;
+    background: #f0f6ff;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    outline: none;
+  }
+
+  .filtros button {
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.97em;
+    padding: 7px 18px;
+    height: 38px;
+    cursor: pointer;
+    box-shadow: 0 2px 7px #ddeafe28;
+    transition: background 0.18s;
+  }
+
+  .filtros button:hover {
+    background: #12407a;
+  }
+
+  .filtros button#btnLimpiar {
+    background: #e0e7ff;
+    color: #003366;
+  }
+
+  .filtros button#btnLimpiar:hover {
+    background: #c7d2fe;
+  }
+
+  /* ====== MODALES (EDITAR USUARIO) ====== */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    overflow: hidden;
+  }
+
+  .modal.open {
+    display: flex;
+  }
+
+  .modal .modal-content {
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 480px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    position: relative;
+  }
+
+  .modal .modal-content input,
+  .modal .modal-content select {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 0.95em;
+    border: 1.2px solid #c8d4ea;
+    border-radius: 6px;
+    margin: 6px 0 12px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .modal .modal-content input:focus,
+  .modal .modal-content select:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    outline: none;
+  }
+
+  .modal .modal-content button {
+    font-family: inherit;
+    font-size: 1em;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin: 8px 8px 0 0;
+  }
+
+  .modal .modal-content #editarBuscarBtn,
+  .modal .modal-content #editarUsuarioForm button[type="submit"],
+  .modal .modal-content #btnToggleActivo {
+    background: #003366;
+    color: #fff;
+    min-width: 140px;
+  }
+
+  .modal .modal-content #editarBuscarBtn:hover,
+  .modal .modal-content #editarUsuarioForm button[type="submit"]:hover,
+  .modal .modal-content #btnToggleActivo:hover {
+    background: #12407a;
+  }
+
+  .modal .modal-content button.secondary {
+    background: #e0e7ff;
+    color: #003366;
+  }
+
+  .modal .modal-content button.secondary:hover {
+    background: #c7d2fe;
+  }
+
+  .modal .modal-content .modal-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: transparent;
+    font-size: 1.2em;
+    color: #666;
+    border: none;
+    cursor: pointer;
+  }
+
+  .modal .modal-content .error {
+    color: #c41e1e;
+    font-size: 0.9em;
+    margin: 0 0 12px;
+  }
+
+  .modal .modal-content #editarResultMsg {
+    font-size: 0.95em;
+    margin-top: 8px;
+  }
+
+  /* ====== RESPONSIVE ====== */
+  @media (max-width: 900px) {
+    .reporte-row-flex {
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .reporte-col,
+    .reporte-col-btn {
+      max-width: 100%;
+      min-width: unset;
+    }
+
+    .btn-exportar-excel {
+      height: 60px;
+      font-size: 1em;
+    }
+
+    .filtros input[type="text"] {
+      min-width: 100px;
+    }
+  }
+</style>
+
+
+
+
+<section class="container">
+  <div id="presentacion">
+    <h1>Reporte de PQRS</h1>
+    <p style="font-size: 1em; color:#333;">
+    </p>
+  </div>
+  <br>
+  <hr>
+
+  <!-- Estadísticas rápidas -->
+  <div id="estadisticas"
+    style="display: flex; gap: 16px; flex-wrap: wrap; justify-content: space-between; margin-bottom: 22px;">
+    <div
+      style="flex:1 1 120px; min-width:120px; background:#f7fafd; border-radius:16px; padding:16px 0; text-align:center;">
+      <div style="font-size:1.3em; font-weight:bold; color:#003366;" id="pendientesCount">0</div>
+      <div style="font-size:1em; color:#222;">Pendientes</div>
+    </div>
+    <div
+      style="flex:1 1 120px; min-width:120px; background:#f7fafd; border-radius:16px; padding:16px 0; text-align:center;">
+      <div style="font-size:1.3em; font-weight:bold; color:#faad14;" id="gestionCount">0</div>
+      <div style="font-size:1em; color:#222;">En gestión</div>
+    </div>
+    <div
+      style="flex:1 1 120px; min-width:120px; background:#f7fafd; border-radius:16px; padding:16px 0; text-align:center;">
+      <div style="font-size:1.3em; font-weight:bold; color:#21c45a;" id="resueltasCount">0</div>
+      <div style="font-size:1em; color:#222;">Resueltas</div>
+    </div>
+    <div
+      style="flex:1 1 120px; min-width:120px; background:#f7fafd; border-radius:16px; padding:16px 0; text-align:center;">
+      <div style="font-size:1.3em; font-weight:bold; color:#ff0000;" id="vecidoCount">0</div>
+      <div style="font-size:1em; color:#222;">Vencidas</div>
+    </div>
+    <div
+      style="flex:1 1 120px; min-width:120px; background:#f7fafd; border-radius:16px; padding:16px 0; text-align:center;">
+      <div style="font-size:1.3em; font-weight:bold; color:#000000;" id="totalCount">0</div>
+      <div style="font-size:1em; color:#222;">Total</div>
+    </div>
+
+  </div>
+  <hr>
+
+  <div class="reporte-row-flex">
+    <div class="reporte-col--excel">
+      <a href="/api/exportar-respuestas" target="_blank" class="btn-exportar-excel">
+        📊 Exportar a Excel
+      </a>
+    </div>
+
+    <!-- botón para editar -->
+    <button id="mostrarEditarUsuarioBtn" class="btn-exportar-excel">Editar Usuarios</button>
+
+    <!-- Modal de buscar & editar -->
+    <div id="editarUsuarioModal" class="modal">
+      <div class="modal-content">
+        <button id="cerrarEditarUsuarioModal" class="modal-close">✖</button>
+        <h2>Buscar y editar usuario</h2>
+
+        <!-- Paso 1: búsqueda -->
+        <div id="editarBusquedaSection">
+          <input type="text" id="editarBusquedaInput" placeholder="Usuario, correo o nombre" />
+          <button id="editarBuscarBtn">Buscar</button>
+          <div id="editarBusquedaMsg" class="error"></div>
+        </div>
+
+        <!-- Paso 2: formulario de edición -->
+        <form id="editarUsuarioForm" style="display:none; margin-top:1em;">
+          <div>
+            <label>Nombre:</label>
+            <input type="text" id="editNombre" required />
+          </div>
+          <div>
+            <label>Correo:</label>
+            <input type="email" id="editCorreo" required />
+          </div>
+          <div>
+            <label>Rol:</label>
+            <select id="editRol" required>
+              <option value="2">Analista</option>
+              <option value="3">Responsable</option>
+            </select>
+          </div>
+          <div>
+            <label>Sede:</label>
+            <select id="editSede" required>
+              <option value="">Seleccione la Sede</option>
+              <option value="SANTANDER">SANTANDER</option>
+              <option value="VALLE DEL CAUCA">VALLE DEL CAUCA</option>
+              <option value="BOLIVAR">BOLIVAR</option>
+              <option value="ATLANTICO">ATLANTICO</option>
+              <option value="BOYACA">BOYACA</option>
+              <option value="BOGOTA">BOGOTA</option>
+              <option value="TOLIMA">TOLIMA</option>
+              <option value="CORDOBA">CORDOBA</option>
+              <option value="ANTIOQUIA">ANTIOQUIA</option>
+              <option value="CUNDINAMARCA">CUNDINAMARCA</option>
+              <option value="CALDAS">CALDAS</option>
+
+            </select>
+
+
+          </div>
+          <button type="submit">Guardar cambios</button>
+        </form>
+
+        <!-- ======= Toggle Activo/Inactivo ======= -->
+        <div id="editarToggleSection" style="margin-top:1em; display:none;">
+          <button id="btnToggleActivo" type="button">
+            Cargar estado...
+          </button>
+          <span id="statusActivo" style="margin-left:.5em;"></span>
+        </div>
+
+        <div id="editarResultMsg" style="margin-top:1em;"></div>
+      </div>
+    </div>
+    <div id="crearUsuarioSection" class="reporte-col-btn">
+      <!-- Botón disparador -->
+      <button id="mostrarCrearUsuarioBtn" class="btn-exportar-excel">
+        Crear Usuario
+      </button>
+
+      <!-- Modal Crear Usuario -->
+      <div id="crearUsuarioModal" class="modal">
+        <div class="modal-content">
+          <button id="cerrarCrearUsuarioModal" class="modal-close">✖</button>
+          <h2>Crear Usuario</h2>
+          <form id="crearUsuarioForm">
+            <div class="campo-full">
+              <label for="usuario">Usuario:</label>
+              <input type="text" name="usuario" id="usuario" required />
+            </div>
+            <div class="campo-full">
+              <label for="nombre">Nombre:</label>
+              <input type="text" name="nombre" id="nombre" required />
+            </div>
+            <div class="campo-full">
+              <label for="correo">Correo:</label>
+              <input type="email" name="correo" id="correo" required />
+            </div>
+            <div class="campo-full">
+              <label for="clave">Contraseña:</label>
+              <input type="password" name="clave" id="clave" required />
+            </div>
+            <div class="campo-full">
+              <label for="rol_id">Rol:</label>
+              <select name="rol_id" id="rol_id" required>
+                <option value="">Seleccione rol</option>
+                <option value="3">RESPONSABLE</option>
+                <option value="2">ANALISTA</option>
+              </select>
+            </div>
+            <div class="campo-full">
+              <label for="sede">Sede:</label>
+              <select name="sede" id="sede" required>
+                <option value="">Seleccione la Sede</option>
+                <option value="SANTANDER">SANTANDER</option>
+                <option value="VALLE DEL CAUCA">VALLE DEL CAUCA</option>
+                <option value="BOLIVAR">BOLIVAR</option>
+                <option value="ATLANTICO">ATLANTICO</option>
+                <option value="BOYACA">BOYACA</option>
+                <option value="BOGOTA">BOGOTA</option>
+                <option value="TOLIMA">TOLIMA</option>
+                <option value="CORDOBA">CORDOBA</option>
+                <option value="ANTIOQUIA">ANTIOQUIA</option>
+                <option value="CUNDINAMARCA">CUNDINAMARCA</option>
+                <option value="CALDAS">CALDAS</option>
+
+                <!-- etc... -->
+              </select>
+            </div>
+            <div class="botones-row" style="justify-content:flex-end; margin-top:12px;">
+              <button type="button" id="cancelarCrearUsuarioBtn" class="btn-cancelar secondary">
+                Cancelar
+              </button>
+              <button type="submit" class="btn-guardar" style="margin-left:8px;">
+                Guardar
+              </button>
+            </div>
+          </form>
+          <div id="crearUsuarioMsg"></div>
+        </div>
+      </div>
+    </div>
+
+
+
+
+  </div>
+  <div class="filtros" style="margin-bottom: 16px; flex-wrap: wrap; gap:8px;">
+    <input id="filtroDocumento" type="text" placeholder="Documento del paciente">
+    <input id="filtroCorreo" type="text" placeholder="Correo">
+    <div style="display:flex; gap:4px; align-items:center;">
+      <label for="filtroFechaDesde" style="margin:0; font-size:.9em;">Desde:</label>
+      <input id="filtroFechaDesde" type="date">
+    </div>
+    <div style="display:flex; gap:4px; align-items:center;">
+      <label for="filtroFechaHasta" style="margin:0; font-size:.9em;">Hasta:</label>
+      <input id="filtroFechaHasta" type="date">
+    </div>
+
+    <button id="btnBuscar">Buscar</button>
+    <button id="btnLimpiar">Limpiar</button>
+
+
+    <!-- Tabla -->
+    <table id="tablaRespuestas">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Persona</th>
+          <th>Tipo</th>
+          <th>Documento</th>
+          <th>Nombre</th>
+          <th>Correo</th>
+          <th>Enviado</th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="paginacion"></div>
+  </div>
+
+
+</section>

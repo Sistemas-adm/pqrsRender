@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard - Tipificar PQRS</title>
+  <link rel="stylesheet" href="../styles/tipificar.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet" />
+    
+</head>
+
+<body>
+  <div class="contenido" id="contenido">
+    <header class="tipificar-header">
+      <h1 id="tituloTipificar">GESTIONANDO <span id="sacNumber">SAC#</span></h1>
+    </header>
+    <form id="tipificarForm" class="tipificar-form">
+
+      <input type="hidden" id="seq" name="seq" />
+      <input type="hidden" id="id" name="id" />
+
+      <!-- 1: DATOS DEL PACIENTE -->
+      <section class="bloque-acordeon">
+        <div class="bloque-titulo" tabindex="0">Datos del paciente</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+          <div class="form-group"><label for="persona">PERSONA:</label><input type="text" id="persona" name="persona"
+              readonly /></div>
+          <div class="form-group"><label for="tipo">TIPO:</label><input type="text" id="tipo" name="tipo" readonly />
+          </div>
+          <div class="form-group"><label for="documeto_paciente">DOCUMENTO PACIENTE:</label><input type="text"
+              id="documeto_paciente" name="documeto_paciente" readonly /></div>
+          <div class="form-group"><label for="nombre">NOMBRE DEL PACIENTE:</label><input type="text" id="nombre"
+              name="nombre" readonly /></div>
+
+          <div class="form-group"><label for="sexo">SEXO:</label><input type="text" id="sexo" name="sexo" readonly />
+          </div>
+          <div class="form-group"><label for="origen">ORIGEN:</label><input type="text" id="origen" name="origen"
+              readonly /></div>
+          <div class="form-group"><label for="departamento">DEPARTAMENTO:</label><input type="text" id="departamento"
+              name="departamento" readonly /></div>
+          <div class="form-group"><label for="municipio">MUNICIPIO:</label><input type="text" id="municipio"
+              name="municipio" readonly /></div>
+          <div class="form-group"><label for="direccion">DIRECCION:</label><input type="text" id="direccion"
+              name="direccion" readonly /></div>
+          <div class="form-group"><label for="celular">CELULAR:</label><input type="text" id="celular" name="celular"
+              readonly /></div>
+          <div class="form-group"><label for="correo">CORREO:</label><input type="email" id="correo" name="correo"
+              readonly /></div>
+        </div>
+      </section>
+
+      <!-- 2: INFO ADICIONAL / METADATOS -->
+      <section class="bloque-acordeon">
+        <div class="bloque-titulo" tabindex="0">Datos adicionales</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+          <div class="form-group"><label for="descripcion">DESCRIPCIÓN:</label><textarea id="descripcion"
+              name="descripcion" rows="3" readonly></textarea></div>
+          <div class="form-group"><label for="archivo_anexo">ARCHIVO:</label><a href="#" id="archivo_anexo"
+              target="_blank">Ver archivo</a></div>
+          <div class="form-group"><label for="enviado_at">FECHA ENVIADO:</label><input type="text" id="enviado_at"
+              name="enviado_at" readonly /></div>
+        </div>
+      </section>
+
+      <!-- 3: GESTIÓN (MEDIO, EPS, RADICADO) -->
+      <section class="bloque-acordeon">
+        <div class="bloque-titulo" tabindex="0">Gestión inicial</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+          <div class="form-group">
+            <label for="medio">*MEDIO:</label>
+            <select name="medio" id="medio" required>
+              <option value="">--Selecciona--</option>
+              <option value="Medio mtd">MTD</option>
+              <option value="Medio eps">EPS</option>
+            </select>
+          </div>
+          <div class="form-group"><label for="eps">*EPS:</label>
+            <select name="eps" id="eps" required>
+              <option value="">--Selecciona--</option>
+              <option value="NUEVA EPS">NUEVA EPS</option>
+              <option value="EPS DELAGENTE">EPS DE LA GENTE</option>
+              <option value="SANITAS">SANITAS</option>
+              <option value="COOSALUD">COOSALUD</option>
+              <option value="COMPENSAR">COMPENSAR</option>
+              <option value="SURA">SURA</option>
+            </select>
+          </div>
+          
+      </section>
+
+      <!-- 4: ANALISTA, ÁREA, RESPONSABLE -->
+      <section class="bloque-acordeon">
+        <div class="bloque-titulo" tabindex="0">Responsables y área</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+
+          <div class="form-group">
+            <label for="analista">*ANALISTA:</label>
+            <select name="analista" id="analista" required>
+              <option value="">--Selecciona--</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="area_encargada">*ÁREA ENCARGADA:</label>
+            <select name="area_encargada" id="area_encargada" required>
+              <option value="">--Selecciona--</option>
+              <option value="SERVICIOS MEDICOS">SERVICIOS MEDICOS</option>
+              <option value="COORDINACION REGIONAL ">COODRINACION REGIONAL</option>
+              <option value="FARMACIA">FARMACIA</option>
+              <option value="AUTORIZACIONES">AUTORIZACIONES</option>
+              <option value="RECOLECCION DE RESIDUOS">RECOLECCION DE RESIDUOS</option>
+              <option value="SERVICIO AL CLIENTE">SERVICIO AL CLIENTE</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="responsable">*RESPONSABLE:</label>
+            <select name="responsable" id="responsable" required>
+              <option value="">--Selecciona--</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5: REQUERIMIENTO/SERVICIO -->
+      <section class="bloque-acordeon">
+        <div class="bloque-titulo" tabindex="0">Requerimiento y servicio</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+          <div class="form-group"><label for="tipo_de_requerimiento">*TIPO:</label>
+            <select name="tipo_de_requerimiento" id="tipo_de_requerimiento" required>
+              <option value="">--Selecciona--</option>
+              <option value="PETICIONES">PETICIONES</option>
+              <option value="QUEJAS">QUEJAS</option>
+              <option value="RECLAMOS">RECLAMOS</option>
+              <option value="SOLICITUDES">SOLICITUDES</option>
+              <option value="DERECHOS DE PETICION">DERECHOS DE PETICIÓN</option>
+              <option value="FELICITACIONES">FELICITACIONES</option>
+              <option value="RECLAMO RIESGO VITAL">RECLAMO RIESGO VITAL</option>
+              <option value="RECLAMO RIESGO PRIORIZADO">RECLAMO RIESGO PRIORIZADO</option>
+              <option value="RECLAMO RIESGO SIMPLE">RECLAMO RIESGO SIMPLE</option>
+              <option value="PETICIONES GENERALES">PETICIONES GENERALES</option>
+            </select>
+          </div>
+          <div class="form-group"><label for="tipo_de_servicio">*TIPO DE SERVICIO:</label>
+            <select id="tipo_de_servicio" name="tipo_de_servicio" required>
+              <option value="">Seleccione...</option>
+            </select>
+          </div>
+          <div class="form-group"><label for="subtipologia">*SUBTIPOLOGÍA:</label>
+            <select id="subtipologia" name="subtipologia" disabled>
+              <option value="">Seleccione un tipo primero...</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6: CONTACTO Y ATRIBUCIÓN -->
+      <section class="bloque-acordeon">
+        <div class="bloque-titulo" tabindex="0">Contacto y atribución</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+          <div class="form-group"><label for="medio_de_contacto">*MEDIO DE CONTACTO:</label>
+            <select name="medio_de_contacto" id="medio_de_contacto" required>
+              <option value="">--Selecciona--</option>
+              <option value="SIAU">SIAU</option>
+              <option value="SUPERSALUD">SUPERSALUD</option>
+              <option value="BUZON DE SUGERENCIAS">BUZÓN DE SUGERENCIAS</option>
+            </select>
+          </div>
+
+          <div class="form-group"><label for="atribuible">*ATRIBUIBLE:</label>
+            <select name="atribuible" id="atribuible" required>
+              <option value="">--Selecciona--</option>
+              <option value="SI">SI</option>
+              <option value="NO">NO</option>
+            </select>
+          </div>
+          <div class="form-group"><label for="por_que">¿POR QUÉ?:</label> <textarea name="por_que"
+              id="por_que"></textarea></div>
+
+        </div>
+
+      </section>
+
+      <!-- 7: FECHAS, INDICADORES, RESPUESTAS -->
+      <section class="bloque-acordeon">
+        <div class="bloque-titulo" tabindex="0">Fechas, indicadores y respuesta</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+          <div class="form-group"><label for="fecha_limite_de_rta">*FECHA LÍMITE DE RTA:</label><input type="date"
+              id="fecha_limite_de_rta" name="fecha_limite_de_rta" /></div>
+          <div class="form-group"><label for="respuesta_al_area_encargada">RESPUESTA AL ÁREA
+              ENCARGADA:</label>
+            <textarea name="respuesta_al_area_encargada" id="respuesta_al_area_encargada"></textarea>
+          </div>
+          <div class="form-group"><label for="indicador_ans">INDICADOR ANS:</label>
+            <select name="indicador_ans" id="indicador_ans" disabled>
+              <option value="">--Selecciona--</option>
+              <option value="CUMPLE">CUMPLE</option>
+              <option value="INCUMPLE">INCUMPLE</option>
+            </select>
+          </div>
+          <div class="form-group"><label for="fecha_respuesta_responsable">FECHA RESPUESTA
+              RESPONSABLE:</label><input type="date" id="fecha_respuesta_responsable"
+              name="fecha_respuesta_responsable" /></div>
+        </div>
+      </section>
+
+      <!-- 8: MENSAJE AL PACIENTE -->
+      <section class="bloque-acordeon" id="tareaSection" style="margin-top:1em;">
+
+        <div class="bloque-titulo" tabindex="0">Mensaje al paciente</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+          <div id="formMensajePacienteEditable">
+            <div class="form-group" style="grid-column: span 2;">
+              <label for="mensajePaciente">Tu mensaje:</label>
+              <textarea id="mensajePaciente" name="mensajePaciente" rows="4"
+                placeholder="Escribe aquí el mensaje para el paciente"></textarea>
+            </div>
+            <div class="form-group" style="grid-column: span 2; margin-top:0.5em;">
+              <label for="archivoAdjunto">Adjuntar archivo (opcional):</label>
+              <input type="file" id="archivoAdjunto" name="archivoAdjunto"
+                accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx" />
+            </div>
+            <div class="form-group" style="grid-column: span 2; margin-top:0.5em;">
+              <button type="button" id="enviarPacienteBtn" class="btn btn-secondary">Enviar al paciente</button>
+              <div id="tareaFeedback" style="margin-top:0.5em;"></div>
+            </div>
+          </div>
+          <div id="mensajePacienteGuardadoDiv" style="display:none; grid-column: span 2;">
+            <label for="mensajePacienteGuardado"><b>Último mensaje enviado al paciente:</b></label>
+            <textarea id="mensajePacienteGuardado" rows="3" readonly style="background: #f8f8f8;"></textarea>
+            <div id="fechaMensajePaciente" style="font-size: 0.9em; color: #666; margin-top:3px;"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 9: ESTADO Y OBSERVACIONES -->
+      <section class="bloque-acordeon">
+        <div class="bloque-titulo" tabindex="0">Cierre y observaciones</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+          <div class="form-group"><label for="estado">*ESTADO:</label>
+            <select id="estado" name="estado" required>
+              <option value="EN GESTION">EN GESTION</option>
+              <option value="RESUELTA">RESUELTA</option>
+            </select>
+          </div>
+          <!-- Solo lectura para evitar errores en el cálculo -->
+          <div class="form-group"><label for="oportunidad_real">OPORTUNIDAD REAL:</label><input type="text"
+              id="oportunidad_real" name="oportunidad_real" readonly /></div>
+          <div class="form-group"><label for="oportunidad_operativa">OPORTUNIDAD OPERATIVA:</label><input type="text"
+              id="oportunidad_operativa" name="oportunidad_operativa" readonly /></div>
+          <div class="form-group"><label for="fecha_de_cierre">FECHA DE CIERRE:</label><input type="date"
+              id="fecha_de_cierre" name="fecha_de_cierre" /></div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label for="observaciones">OBSERVACIONES:</label>
+            <textarea id="observaciones" name="observaciones" rows="4"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <!-- 10: ANEXOS REASIGNACION -->
+      <section class="bloque-acordeon">
+        <div class="bloque-titulo" tabindex="0">Anexos</div>
+        <div class="bloque-cuerpo grid-dos-columnas">
+          <div class="form-group">
+            <label for="pregunta_reasignacion">¿REASIGNACIÓN?</label>
+            <select name="pregunta_reasignacion" id="pregunta_reasignacion">
+              <option value="">--Selecciona--</option>
+              <option value="SI">SI</option>
+              <option value="NO" selected>NO</option>
+            </select>
+          </div>
+          <div class="form-group" id="grupo_reasignacion" style="display:none;">
+            <label for="respuesta_al_area_encargada_reasignacion">RESPUESTA AL ÁREA ENCARGADA POR REASIGNACIÓN:</label>
+            <textarea name="respuesta_al_area_encargada_reasignacion"
+              id="respuesta_al_area_encargada_reasignacion"></textarea>
+
+            <label for="fecha_respuesta_responsable_reasignacion">FECHA RESPUESTA RESPONSABLE REASIGNACIÓN:</label>
+            <input type="date" id="fecha_respuesta_responsable_reasignacion"
+              name="fecha_respuesta_responsable_reasignacion" />
+          </div>
+          <div class="form-group">
+            <label for="vencido">¿VENCIDO?</label>
+            <select id="vencido" name="vencido" >
+              <option value="">--Selecciona--</option>
+              <option value="SI">SI</option>
+              <option value="NO">NO</option>
+            </select>
+          </div>
+        </div>
+
+      </section>
+
+      <div class="form-actions" style="grid-column: span 2;">
+        <button type="submit" class="btn btn-primary">GUARDAR</button>
+        <button type="button" id="cancelBtn" class="btn btn-secondary">CERRAR</button>
+      </div>
+    </form>
+  </div>
+  <script src="../js/tipificar.js"></script>
+  <script src="../js/tipificar-servicios.js"></script>
+  <!-- <script src="../js/tipificar-acordeon.js"></script> -->
+  <!-- Loader Overlay -->
+  <div id="loadingOverlay" class="loader-overlay" style="display: none;">
+    <div class="loader-content">
+      <div class="loader-spinner"></div>
+      <span>Guardando tipificación...</span>
+    </div>
+  </div>
+
+
+
+
+</body>
+
+</html>

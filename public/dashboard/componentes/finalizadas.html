@@ -1,0 +1,49 @@
+<section>
+  <div class="table-container">
+    <h1>RESUELTA</h1>
+
+    <div class="filtro-seq" style="margin-bottom:1.5rem; display:flex; align-items:center; gap:.75rem; flex-wrap: wrap;">
+      <label for="inputSeqFilter" style="font-weight:600; font-size:.9rem; color:#222b36; margin:0;">SAC:</label>
+      <input type="text" id="inputSeqFilter" placeholder="Ej: 1234" 
+             style="padding:.5rem .75rem; border:1.5px solid #e5eaf2; border-radius:8px; background:#f7fafd; font-size:.9rem; color:#222b36; transition: border-color .14s, background .14s; min-width:160px;" />
+      <button id="btnFiltrar" 
+              style="padding:.5rem 1rem; border:none; border-radius:8px; font-size:.9rem; font-weight:600; cursor:pointer; background:#57a0fb; color:#fff; box-shadow:0 1px 6px rgba(87,160,251,0.2); transition:background .15s, transform .12s;">
+        Buscar
+      </button>
+      <button id="btnLimpiarFiltro" 
+              style="padding:.5rem 1rem; border:none; border-radius:8px; font-size:.9rem; font-weight:600; cursor:pointer; background:#f0f3f7; color:#2674e3; box-shadow:0 1px 6px rgba(0,0,0,0.05); transition:background .15s;">
+        Limpiar
+      </button>
+    </div>
+
+    <table id="tablaRespuestasFinalizadas" class="styled-table">
+      <colgroup>
+        <col style="width: 100px;" />   <!-- ID -->
+        <col style="width: 120px;" />  <!-- PERSONA -->
+        <col style="width: 70px;" />   <!-- TIPO -->
+        <col style="width: 150px;" />  <!-- DOCUMENTO -->
+        <col style="width: 150px;" />  <!-- NOMBRE -->
+        <col style="width: 150px;" />  <!-- CORREO -->
+        <col style="width: 100px;" />  <!-- ENVIADO -->
+        <col style="width: 120px;" />  <!-- ACCIÓN -->
+      </colgroup>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>PERSONA</th>
+          <th>TIPO</th>
+          <th>DOCUMENTO</th>
+          <th>NOMBRE</th>
+          <th>CORREO</th>
+          <th>ENVIADO</th>
+          <th>ACCIÓN</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Filas inyectadas dinámicamente -->
+      </tbody>
+    </table>
+
+    <div id="paginacionFinalizadas"></div>
+  </div>
+</section>
