@@ -1,15 +1,22 @@
+# deps
 node_modules/
+
+# env
 .env
+
+# logs
 npm-debug.log*
+
+# lockfiles alternativos (mantén package-lock.json)
 yarn.lock
 pnpm-lock.yaml
-node_modules/
-.env
-npm-debug.log*
-yarn.lock
-pnpm-lock.yaml
-node_modules/
-.env
-npm-debug.log*
-yarn.lock
-pnpm-lock.yaml
+
+# builds
+dist/
+build/
+coverage/
+
+# SO/Editor
+.DS_Store
+Thumbs.db
+.vscode/
