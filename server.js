@@ -1054,7 +1054,7 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
 
 
 /* ---------- Start ---------- */
-const PORT = Number(process.env.PORT || 4000);
+const PORT = Number(process.env.PORT || 1000);
 
 // al final, antes del app.listen:
 app.use((err, req, res, next) => {
