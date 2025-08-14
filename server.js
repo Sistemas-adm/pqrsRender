@@ -14,35 +14,73 @@ const saltRounds = 10;
 
 const app = express();
 
-// Middlewares
-app.use(cors({ origin: true, credentials: true }));
+
+
+/* ---------- NUEVO: confiar en proxy (Render) y CORS por variable ---------- */
+
+app.set("trust proxy", 1); // cookies secure detrás de proxy (Render/Nginx)
+
+const allowed = (process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || allowed.length === 0 || allowed.includes(origin)) return cb(null, true);
+    return cb(new Error("CORS blocked"));
+  },
+  credentials: true
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+
+/* ---------- SESIONES (ajusta cookie para producción y posible cross-site) ---------- */
+
 app.use(
   session({
-    secret: process.env.SESSION_SECRET,
+    secret: process.env.SESSION_SECRET || "change-me",
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 3600000 }, // 1h
+    cookie: {
+      maxAge: 3600000, // 1h
+      secure: process.env.NODE_ENV === "production", // true en Render
+      sameSite: process.env.COOKIE_SAMESITE || "lax" // usa "none" si el frontend está en otro dominio y necesitas enviar cookies cross-site
+    },
   })
 );
 
+/* ---------- NUEVO: uploads a carpeta configurable y servida estáticamente ---------- */
+// En Render el FS es efímero; usa disco persistente y apunta UPLOAD_DIR, ej: /data/uploads
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "public/form/uploads");
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
 // Multer
 const storage = multer.diskStorage({
-  destination: (req, file, cb) =>
-    cb(null, path.join(__dirname, "public/form/uploads")),
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
+
 const upload = multer({ storage });
+
+
+// Servir los adjuntos aunque estén fuera de /public
+
+app.use("/uploads", express.static(UPLOAD_DIR));
+
 
 // MySQL
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT || 3306),
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
+  ...(process.env.DB_SSL === "1" ? { ssl: { rejectUnauthorized: true } } : {})
 });
 
 // Nodemailer
@@ -50,12 +88,21 @@ const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: +process.env.SMTP_PORT,
   secure: process.env.SMTP_SECURE === "true",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
 });
 
+/* ---------- NUEVO: health & db-ping para Render ---------- */
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true, service: "pqrsRender", time: new Date().toISOString() });
+});
+app.get("/api/db-ping", async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT 1 AS ok");
+    res.json({ ok: true, db: rows[0].ok });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
 
 async function gateDashboard(req, res, next) {
   if (!req.session?.userId) return res.redirect("/auth/index.html");
@@ -1006,6 +1053,15 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
 });
 
 
-// Start
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Servidor en http://localhost:${PORT}`));
+/* ---------- Start ---------- */
+const PORT = Number(process.env.PORT || 4000);
+
+// al final, antes del app.listen:
+app.use((err, req, res, next) => {
+  if (err && err.message === "CORS blocked") {
+    return res.status(403).json({ success: false, message: "Origen no permitido por CORS" });
+  }
+  next(err);
+});
+
+app.listen(PORT, () => console.log(`Servidor escuchando en :${PORT}`));

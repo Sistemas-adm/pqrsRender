@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: pqrsRender-api
+    env: node
+    plan: free
+    autoDeploy: true
+    buildCommand: "npm ci"
+    startCommand: "node server.js"
+    healthCheckPath: "/api/health"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: UPLOAD_DIR
+        value: "/data/uploads"
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "3306"
+      - key: DB_USER
+        sync: false
+      - key: DB_PASS
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_SSL
+        value: "0"
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
