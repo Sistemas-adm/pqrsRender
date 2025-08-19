@@ -40,7 +40,6 @@ app.use(
     },
     credentials: true,
     exposedHeaders: ["Content-Disposition"], // <- para leer el nombre del archivo si usas fetch
-
   })
 );
 
@@ -113,8 +112,35 @@ const upload = multer({
     return cb(byExt ? null : new Error("Tipo de archivo no permitido"), byExt);
   },
 });
+
 // Servir los adjuntos aunque estén fuera de /public
-app.use("/uploads", express.static(UPLOAD_DIR));
+app.get("/uploads/:filename", ensureAuth, async (req, res) => {
+   try {
+     const filename = req.params.filename;
+     // buscar a qué caso pertenece el archivo
+     const [rows] = await pool.query(
+       "SELECT seq, responsable FROM respuestas_formulario WHERE archivo_ruta LIKE ? LIMIT 1",
+       [`%/${filename}`]
+     );
+     if (!rows.length) return res.status(404).send("No encontrado");
+
+     const { responsable } = rows[0];
+     const rol = req.session.rol_id;
+     const uid = req.session.userId;
+
+     // Admin/Analista/Auditor ven todo; Responsable solo si es suyo
+     if (rol === 3 && Number(responsable) !== Number(uid)) {
+       return res.status(403).send("No autorizado");
+     }
+
+     const abs = path.join(UPLOAD_DIR, filename);
+     if (!fs.existsSync(abs)) return res.status(404).send("No encontrado");
+     res.sendFile(abs);
+   } catch (e) {
+     console.error("GET /uploads error:", e);
+     res.status(500).send("Error");
+   }
+ });
 app.use("/", express.static(path.join(__dirname, "public/form")));
 // ...
 
@@ -367,6 +393,9 @@ app.get("/api/perfil", ensureAuth, async (req, res) => {
   }
 });
 app.get("/api/usuarios-por-rol/:rol_id", ensureAuth, async (req, res) => {
+  if (![1, 2, 4].includes(req.session.rol_id)) {
+    return res.status(403).json({ success: false, message: "No autorizado" });
+  }
   try {
     const [rows] = await pool.query(
       "SELECT id,usuario,nombre FROM usuarios WHERE rol_id=?",
@@ -489,14 +518,22 @@ app.get("/api/respuesta/:seq", ensureAuth, async (req, res) => {
 // Endpoint para exportar a Excel
 
 app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
+  if (![1, 2].includes(req.session.rol_id)) {
+    return res.status(403).json({ success: false, message: "No autorizado" });
+  }
   try {
     // Traer todas las filas de respuestas
-    const [rows] = await pool.query(`
-      SELECT rf.*,
-             u.nombre AS enviado_por_nombre
-      FROM respuestas_formulario rf
-      LEFT JOIN usuarios u ON u.id = rf.enviado_por_id
-    `);
+    let sql = `
+   SELECT rf.*, u.nombre AS enviado_por_nombre
+   FROM respuestas_formulario rf
+   LEFT JOIN usuarios u ON u.id = rf.enviado_por_id
+ `;
+    let params = [];
+    if (req.session.rol_id === 3) {
+      sql += " WHERE rf.responsable = ? ";
+      params.push(req.session.userId);
+    }
+    const [rows] = await pool.query(sql, params);
 
     // Traer los usuarios para poder mapear analista/responsable
     const [usuarios] = await pool.query("SELECT id, nombre FROM usuarios");
@@ -1037,21 +1074,38 @@ Gracias por comunicarse con nosotros.`;
 // Estadísticas PQRS
 app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
   try {
+    const rol = req.session.rol_id;
+    const uid = req.session.userId;
+    let extra = "",
+      params = [];
+    if (rol === 3) {
+      // Responsable: solo los suyos
+      extra = " AND responsable = ? ";
+      params = [uid];
+    }
     const [[pendientes]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE estado IS NULL OR LOWER(estado)='pendiente'"
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE (estado IS NULL OR LOWER(estado)='pendiente')" +
+        extra,
+      params
     );
-
     const [[gestion]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='en gestion'"
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='en gestion'" +
+        extra,
+      params
     );
     const [[resueltas]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='resuelta'"
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='resuelta'" +
+        extra,
+      params
     );
     const [[vencido]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE vencido='SI'"
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE vencido='SI'" +
+        extra,
+      params
     );
     const [[total]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario"
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE 1=1" + extra,
+      params
     );
 
     res.json({
@@ -1150,7 +1204,9 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ success: false, message: err.message });
   }
   if (err && err.code === "LIMIT_FILE_SIZE") {
-    return res.status(400).json({ success: false, message: "Archivo supera el límite (10MB)" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Archivo supera el límite (10MB)" });
   }
   next(err);
 });

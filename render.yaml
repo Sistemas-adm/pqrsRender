@@ -7,6 +7,10 @@ services:
     buildCommand: "npm ci"
     startCommand: "node server.js"
     healthCheckPath: "/api/health"
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB:1
     envVars:
       - key: NODE_ENV
         value: production
