@@ -113,8 +113,6 @@ const upload = multer({
   },
 });
 
-
-
 // MySQL
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
@@ -154,10 +152,6 @@ app.get("/uploads/:filename", ensureAuth, async (req, res) => {
     res.status(500).send("Error");
   }
 });
-app.use("/", express.static(path.join(__dirname, "public/form")));
-// ...
-
-
 
 // Nodemailer
 const transporter = nodemailer.createTransport({
@@ -635,7 +629,7 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
 });
 
 app.post("/api/tipificar", ensureAuth, async (req, res) => {
-  const {
+  let {
     seq,
     medio,
     eps,
@@ -670,7 +664,7 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
   try {
     // Consultar estado actual y responsable
     const [[respuesta]] = await pool.query(
-      "SELECT estado, responsable FROM respuestas_formulario WHERE seq=?",
+      "SELECT estado, responsable, analista AS analista_db, area_encargada AS area_db, fecha_limite_de_rta AS flr_db FROM respuestas_formulario WHERE seq=?",
       [seq]
     );
     if (!respuesta)
@@ -739,6 +733,73 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
         success: false,
         message: "No autorizado para tipificar este caso",
       });
+    }
+    // 🔒 Campo-level guard para RESPONSABLE (rol 3): no puede reasignar ni mover fecha límite
+    // 🔒 Si es RESPONSABLE (rol 3), solo puede registrar sus respuestas.
+    // Nada de cambiar estado, reasignar, ni tocar fechas límite/cierre.
+    if (usuarioRolActual.rol_id === 3) {
+      try {
+        // Guardar SOLO los 4 campos que el responsable puede diligenciar
+        const [r] = await pool.execute(
+          `UPDATE respuestas_formulario SET
+         respuesta_al_area_encargada = ?,
+         respuesta_al_area_encargada_reasignacion = ?,
+         fecha_respuesta_responsable = ?,
+         fecha_respuesta_responsable_reasignacion = ?
+       WHERE seq = ? AND responsable = ?`,
+          [
+            respuesta_al_area_encargada || "",
+            respuesta_al_area_encargada_reasignacion || "",
+            fecha_respuesta_responsable || null,
+            fecha_respuesta_responsable_reasignacion || null,
+            seq,
+            usuarioRolActual.id,
+          ]
+        );
+
+        if (!r.affectedRows) {
+          return res
+            .status(404)
+            .json({ success: false, message: "No encontrado" });
+        }
+
+        // Notificar al analista según corresponda
+        const [[info]] = await pool.query(
+          "SELECT analista FROM respuestas_formulario WHERE seq=?",
+          [seq]
+        );
+        if (info && info.analista) {
+          const [[analistaInfo]] = await pool.query(
+            "SELECT nombre, correo FROM usuarios WHERE id=?",
+            [info.analista]
+          );
+          if (analistaInfo) {
+            // Si respondió a una reasignación, asunto distinto
+            const asunto = respuesta_al_area_encargada_reasignacion
+              ? `Reasignación respondida SAC${seq}`
+              : `PQRS respondida SAC${seq}`;
+
+            const texto = respuesta_al_area_encargada_reasignacion
+              ? `Hola ${analistaInfo.nombre},\n\nEl responsable ha respondido la reasignación de SAC${seq}.\nSaludos.`
+              : `Hola ${analistaInfo.nombre},\n\nEl responsable ha respondido SAC${seq}.\nSaludos.`;
+
+            await transporter.sendMail({
+              from: process.env.SMTP_USER,
+              to: analistaInfo.correo,
+              subject: asunto,
+              text: texto,
+            });
+          }
+        }
+
+        return res.json({
+          success: true,
+          message: "Respuesta del responsable registrada.",
+        });
+      } catch (e) {
+        console.error("Tipificar (rol 3):", e);
+        return res.status(500).json({ success: false, message: e.message });
+      }
     }
 
     // Actualizar base (manejo de reapertura limpiando fecha_de_cierre)
@@ -960,6 +1021,10 @@ app.post(
   ensureAuth,
   upload.single("archivoAdjunto"),
   async (req, res) => {
+    // Solo Admin/Analista
+    if (![1, 2].includes(req.session.rol_id)) {
+      return res.status(403).json({ success: false, message: "No autorizado" });
+    }
     const { seq, mensaje } = req.body;
     if (!seq || !mensaje) {
       return res
