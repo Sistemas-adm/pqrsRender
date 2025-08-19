@@ -113,36 +113,7 @@ const upload = multer({
   },
 });
 
-// Servir los adjuntos aunque estén fuera de /public
-app.get("/uploads/:filename", ensureAuth, async (req, res) => {
-   try {
-     const filename = req.params.filename;
-     // buscar a qué caso pertenece el archivo
-     const [rows] = await pool.query(
-       "SELECT seq, responsable FROM respuestas_formulario WHERE archivo_ruta LIKE ? LIMIT 1",
-       [`%/${filename}`]
-     );
-     if (!rows.length) return res.status(404).send("No encontrado");
 
-     const { responsable } = rows[0];
-     const rol = req.session.rol_id;
-     const uid = req.session.userId;
-
-     // Admin/Analista/Auditor ven todo; Responsable solo si es suyo
-     if (rol === 3 && Number(responsable) !== Number(uid)) {
-       return res.status(403).send("No autorizado");
-     }
-
-     const abs = path.join(UPLOAD_DIR, filename);
-     if (!fs.existsSync(abs)) return res.status(404).send("No encontrado");
-     res.sendFile(abs);
-   } catch (e) {
-     console.error("GET /uploads error:", e);
-     res.status(500).send("Error");
-   }
- });
-app.use("/", express.static(path.join(__dirname, "public/form")));
-// ...
 
 // MySQL
 const pool = mysql.createPool({
@@ -155,6 +126,38 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   ...(process.env.DB_SSL === "1" ? { ssl: { rejectUnauthorized: true } } : {}),
 });
+// Servir los adjuntos aunque estén fuera de /public
+app.get("/uploads/:filename", ensureAuth, async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    // buscar a qué caso pertenece el archivo
+    const [rows] = await pool.query(
+      "SELECT seq, responsable FROM respuestas_formulario WHERE archivo_ruta LIKE ? LIMIT 1",
+      [`%/${filename}`]
+    );
+    if (!rows.length) return res.status(404).send("No encontrado");
+
+    const { responsable } = rows[0];
+    const rol = req.session.rol_id;
+    const uid = req.session.userId;
+
+    // Admin/Analista/Auditor ven todo; Responsable solo si es suyo
+    if (rol === 3 && Number(responsable) !== Number(uid)) {
+      return res.status(403).send("No autorizado");
+    }
+
+    const abs = path.join(UPLOAD_DIR, filename);
+    if (!fs.existsSync(abs)) return res.status(404).send("No encontrado");
+    res.sendFile(abs);
+  } catch (e) {
+    console.error("GET /uploads error:", e);
+    res.status(500).send("Error");
+  }
+});
+app.use("/", express.static(path.join(__dirname, "public/form")));
+// ...
+
+
 
 // Nodemailer
 const transporter = nodemailer.createTransport({
@@ -529,10 +532,6 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
    LEFT JOIN usuarios u ON u.id = rf.enviado_por_id
  `;
     let params = [];
-    if (req.session.rol_id === 3) {
-      sql += " WHERE rf.responsable = ? ";
-      params.push(req.session.userId);
-    }
     const [rows] = await pool.query(sql, params);
 
     // Traer los usuarios para poder mapear analista/responsable
@@ -690,6 +689,16 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
       nuevoEstado === "resuelta" && anteriorEstado !== "resuelta";
     const esReapertura =
       anteriorEstado === "resuelta" && nuevoEstado !== "resuelta";
+    // Dentro de /api/tipificar
+
+    // Solo Admin/Analista/Auditor pueden reabrir
+    if (esReapertura && ![1, 2, 4].includes(usuarioRolActual.rol_id)) {
+      return res.status(403).json({
+        success: false,
+        message: "No autorizado para reabrir una PQRS resuelta",
+      });
+    }
+
     // Corrección: notificar cuando pase de RESUELTA -> EN GESTION
     const esEnGestionTransition =
       anteriorEstado === "resuelta" && nuevoEstado === "en gestion";
