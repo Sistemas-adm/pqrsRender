@@ -262,53 +262,47 @@ app.post("/api/login", async (req, res) => {
     );
 
     if (rows.length !== 1) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Credenciales inválidas" });
+      return res.status(401).json({ success: false, message: "Credenciales inválidas" });
     }
 
     const u = rows[0];
 
-    // 1) Bloquear inactivo
     if (u.activo !== 1) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Usuario inactivo" });
+      return res.status(403).json({ success: false, message: "Usuario inactivo" });
     }
 
-    // 2) Verificar contraseña
     const match = await bcrypt.compare(clave, u.clave_hash);
     if (!match) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Credenciales inválidas" });
+      return res.status(401).json({ success: false, message: "Credenciales inválidas" });
     }
 
-    // 3) Bloquear si no tiene rol asignado
     if (!u.rol_id || !u.rol) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Usuario sin rol asignado" });
+      return res.status(403).json({ success: false, message: "Usuario sin rol asignado" });
     }
 
-    // 4) Regenerar sesión y setear datos
     req.session.regenerate((err) => {
       if (err) {
         console.error("Error al regenerar sesión:", err);
-        return res
-          .status(500)
-          .json({ success: false, message: "Error de servidor" });
+        return res.status(500).json({ success: false, message: "Error de servidor" });
       }
+
       req.session.userId = u.id;
       req.session.rol_id = u.rol_id;
       req.session.rol = u.rol;
       req.session.nombre = u.nombre;
 
-      return res.json({
-        success: true,
-        rol: u.rol,
-        rol_id: u.rol_id,
-        user_id: u.id,
+      // 🔒 Importante: guarda la sesión ANTES de responder
+      req.session.save((err2) => {
+        if (err2) {
+          console.error("Error al guardar sesión:", err2);
+          return res.status(500).json({ success: false, message: "Error de servidor" });
+        }
+        return res.json({
+          success: true,
+          rol: u.rol,
+          rol_id: u.rol_id,
+          user_id: u.id,
+        });
       });
     });
   } catch (e) {
@@ -316,6 +310,7 @@ app.post("/api/login", async (req, res) => {
     res.status(500).json({ success: false, message: e.message });
   }
 });
+
 
 // CREAR USUARIO (ADMIN/ANALISTA)
 app.post("/api/usuarios", ensureAuth, async (req, res) => {
