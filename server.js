@@ -127,31 +127,48 @@ const pool = mysql.createPool({
 // Servir los adjuntos aunque estén fuera de /public
 app.get("/uploads/:filename", ensureAuth, async (req, res) => {
   try {
-    const filename = req.params.filename;
-    // buscar a qué caso pertenece el archivo
+    // 1) Normaliza y valida el nombre de archivo (evita traversal)
+    const raw = String(req.params.filename || "");
+    const filename = path.basename(raw); // corta cualquier "../"
+    if (!/^[\w.\-\s]+$/.test(filename)) {
+      return res.status(400).send("Nombre de archivo no válido");
+    }
+
+    // 2) Busca por ruta EXACTA (así la guardas en submit: `/uploads/${req.file.filename}`)
+    const archivoRuta = `/uploads/${filename}`;
     const [rows] = await pool.query(
-      "SELECT seq, responsable FROM respuestas_formulario WHERE archivo_ruta LIKE ? LIMIT 1",
-      [`%/${filename}`]
+      "SELECT seq, responsable FROM respuestas_formulario WHERE archivo_ruta = ? LIMIT 1",
+      [archivoRuta]
     );
     if (!rows.length) return res.status(404).send("No encontrado");
 
+    // 3) Compara roles como NÚMERO (clave!)
+    const rol = Number(req.session.rol_id);
+    const uid = Number(req.session.userId);
     const { responsable } = rows[0];
-    const rol = req.session.rol_id;
-    const uid = req.session.userId;
 
     // Admin/Analista/Auditor ven todo; Responsable solo si es suyo
-    if (rol === 3 && Number(responsable) !== Number(uid)) {
+    if (rol === 3 && Number(responsable) !== uid) {
       return res.status(403).send("No autorizado");
     }
 
-    const abs = path.join(UPLOAD_DIR, filename);
+    // 4) Resuelve ruta física de forma segura y verifica que esté dentro de UPLOAD_DIR
+    const abs = path.resolve(UPLOAD_DIR, filename);
+    const base = path.resolve(UPLOAD_DIR) + path.sep;
+    if (!abs.startsWith(base)) return res.status(400).send("Ruta inválida");
     if (!fs.existsSync(abs)) return res.status(404).send("No encontrado");
-    res.sendFile(abs);
+
+    // 5) Cabeceras útiles para descarga
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, no-store");
+
+    return res.sendFile(abs);
   } catch (e) {
     console.error("GET /uploads error:", e);
-    res.status(500).send("Error");
+    return res.status(500).send("Error");
   }
 });
+
 
 // Nodemailer
 const transporter = nodemailer.createTransport({
@@ -221,6 +238,15 @@ async function ensureAuth(req, res, next) {
   }
 }
 
+function normEstado(s) {
+  return (s || "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")   // si tu Node no soporta \p{...}, usa la versión de abajo
+    .replace(/\s+/g, " ");
+}
 // Login / Logout
 // LOGIN
 app.post("/api/login", async (req, res) => {
@@ -407,43 +433,55 @@ app.get("/api/usuarios-por-rol/:rol_id", ensureAuth, async (req, res) => {
 
 // Listar / Obtener Respuestas
 app.get("/api/respuestas", ensureAuth, async (req, res) => {
-  const limit = +req.query.limit || 10,
-    offset = +req.query.offset || 0;
-  const estado = req.query.estado;
+  const limit = Number(req.query.limit || 10);
+  const offset = Number(req.query.offset || 0);
+  const estadoQ = (req.query.estado || "").toString();
+
   try {
     const [[u]] = await pool.query(
-      "SELECT id,rol_id FROM usuarios WHERE id=?",
+      "SELECT id, rol_id FROM usuarios WHERE id=?",
       [req.session.userId]
     );
-    let where = [],
-      params = [];
-    if (estado) {
-      const e = estado.toUpperCase();
-      if (e === "PENDIENTE")
+
+    const userId = Number(u?.id);
+    const userRole = Number(u?.rol_id); // <- CAST SEGURO
+
+    const where = [];
+    const params = [];
+
+    // --- Estado (soporta "en gestion" y "en gestión") ---
+    if (estadoQ) {
+      const e = estadoQ.toLowerCase();
+      if (e === "pendiente") {
         where.push("(estado IS NULL OR LOWER(estado)='pendiente')");
-      else if (e === "EN GESTION") where.push("LOWER(estado)='en gestion'");
-      else if (e === "RESUELTA") where.push("LOWER(estado)='resuelta'");
-      else {
+      } else if (e === "en gestion") {
+        // acepta con y sin tilde
+        where.push(
+          "(LOWER(estado)='en gestion' OR LOWER(estado)='en gestión')"
+        );
+      } else if (e === "resuelta") {
+        where.push("LOWER(estado)='resuelta'");
+      } else {
         where.push("estado=?");
-        params.push(estado);
+        params.push(estadoQ);
       }
     }
-    if (u.rol_id === 3) {
-      where.push("responsable=?");
-      params.push(u.id);
+
+    // --- FILTRO CLAVE: solo sus casos si es Responsable ---
+    if (userRole === 3) {
+      where.push("responsable = ?");
+      params.push(userId);
     }
-    // ---> AGREGA ESTO AQUÍ ABAJO <---
-    // FILTRO POR DOCUMENTO
+
+    // --- Filtros extra ---
     if (req.query.documeto_paciente) {
       where.push("documeto_paciente LIKE ?");
       params.push(`%${req.query.documeto_paciente}%`);
     }
-    // FILTRO POR CORREO
     if (req.query.correo) {
       where.push("correo LIKE ?");
       params.push(`%${req.query.correo}%`);
     }
-    // FILTRO POR RANGO DE FECHAS (enviado_at)
     if (req.query.fecha_desde) {
       where.push("enviado_at >= ?");
       params.push(`${req.query.fecha_desde} 00:00:00`);
@@ -455,17 +493,23 @@ app.get("/api/respuestas", ensureAuth, async (req, res) => {
 
     let countSQL = "SELECT COUNT(*) AS total FROM respuestas_formulario";
     let dataSQL = `SELECT seq,persona,tipo,documeto_paciente,nombre,correo,
-                    descripcion,enviado_at,fecha_de_cierre,fecha_limite_de_rta,estado,observaciones,responsable
+                           descripcion,enviado_at,fecha_de_cierre,fecha_limite_de_rta,
+                           estado,observaciones,responsable
                     FROM respuestas_formulario`;
+
     if (where.length) {
       const c = " WHERE " + where.join(" AND ");
       countSQL += c;
       dataSQL += c;
     }
+
     dataSQL += " ORDER BY enviado_at ASC LIMIT ? OFFSET ?";
-    params.push(limit, offset);
-    const [[{ total }]] = await pool.query(countSQL, params.slice(0, -2));
-    const [rows] = await pool.query(dataSQL, params);
+
+    const listParams = [...params, limit, offset];
+
+    const [[{ total }]] = await pool.query(countSQL, params);
+    const [rows] = await pool.query(dataSQL, listParams);
+
     res.json({ success: true, total, data: rows });
   } catch (e) {
     console.error(e);
@@ -475,140 +519,154 @@ app.get("/api/respuestas", ensureAuth, async (req, res) => {
 
 // IMPORTANTE: Responsables pueden VER su PQRS aunque esté resuelta, pero SOLO pueden editar si NO está resuelta.
 // Analistas y admins pueden ver y editar todo menos cuando está resuelta (chequeo en tipificar).
+// Obtener una respuesta por seq (detalle)
+// Obtener una respuesta por seq (detalle)
 app.get("/api/respuesta/:seq", ensureAuth, async (req, res) => {
   try {
+    const seq = Number(req.params.seq);
+    if (!Number.isInteger(seq)) {
+      return res.status(400).json({ success: false, message: "Seq inválido" });
+    }
+
     const [rows] = await pool.query(
       `SELECT rf.*,
-          u.nombre AS enviado_por_nombre,
-          u.correo AS enviado_por_correo
-     FROM respuestas_formulario rf
-     LEFT JOIN usuarios u ON u.id = rf.enviado_por_id
-    WHERE rf.seq = ?`,
-      [req.params.seq]
+              u.nombre AS enviado_por_nombre,
+              u.correo AS enviado_por_correo
+         FROM respuestas_formulario rf
+    LEFT JOIN usuarios u ON u.id = rf.enviado_por_id
+        WHERE rf.seq = ?`,
+      [seq]
     );
-    if (!rows.length)
+
+    if (!rows.length) {
       return res.status(404).json({ success: false, message: "No encontrado" });
+    }
 
     const [[usuario]] = await pool.query(
-      "SELECT rol_id, id FROM usuarios WHERE id=?",
+      "SELECT id, rol_id FROM usuarios WHERE id=?",
       [req.session.userId]
     );
-    // DEBUG:
-    console.log("User accessing:", usuario, "PQRS:", rows[0]);
+    const rolNum = Number(usuario?.rol_id);
+    const uid = Number(usuario?.id);
 
-    // Solo responsable asignado puede ver (nunca editar finalizada, validado en tipificar)
-    if (
-      usuario.rol_id === 3 &&
-      Number(rows[0].responsable) !== Number(usuario.id)
-    ) {
+    // Rol 3 (Responsable) solo puede ver si es el responsable asignado
+    if (rolNum === 3 && Number(rows[0].responsable) !== uid) {
       return res
         .status(403)
         .json({ success: false, message: "No autorizado para ver este caso" });
     }
-    res.json(rows[0]);
+
+    // IMPORTANTE: devolvemos el objeto plano para no romper el front
+    return res.json(rows[0]);
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: e.message });
+    console.error("GET /api/respuesta/:seq error:", e);
+    return res
+      .status(500)
+      .json({ success: false, message: "Error de servidor" });
   }
 });
+
+
 
 // Endpoint para exportar a Excel
 
 app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
-  if (![1, 2].includes(req.session.rol_id)) {
+  const rol = Number(req.session.rol_id);
+  const uid = Number(req.session.userId);
+
+  if (![1, 2].includes(rol)) {
     return res.status(403).json({ success: false, message: "No autorizado" });
   }
+
   try {
-    // Traer todas las filas de respuestas
+    // === Filtros opcionales (mismos que /api/respuestas) ===
+    const { documeto_paciente, correo, fecha_desde, fecha_hasta } = req.query;
+    const estadoQ = normEstado(req.query.estado || "");
+
+    const where = [];
+    const params = [];
+
+    if (estadoQ) {
+      if (estadoQ === "pendiente") {
+        where.push("(estado IS NULL OR LOWER(estado)='pendiente')");
+      } else if (estadoQ === "en gestion") {
+        where.push(
+          "(LOWER(estado)='en gestion' OR LOWER(estado)='en gestión')"
+        );
+      } else if (estadoQ === "resuelta") {
+        where.push("LOWER(estado)='resuelta'");
+      } else {
+        where.push("estado = ?");
+        params.push(req.query.estado);
+      }
+    }
+    if (documeto_paciente) {
+      where.push("documeto_paciente LIKE ?");
+      params.push(`%${documeto_paciente}%`);
+    }
+    if (correo) {
+      where.push("correo LIKE ?");
+      params.push(`%${correo}%`);
+    }
+    if (fecha_desde) {
+      where.push("enviado_at >= ?");
+      params.push(`${fecha_desde} 00:00:00`);
+    }
+    if (fecha_hasta) {
+      where.push("enviado_at <= ?");
+      params.push(`${fecha_hasta} 23:59:59`);
+    }
+
+    // Defense-in-depth si algún día cambian permisos:
+    if (rol === 3) {
+      where.push("responsable = ?");
+      params.push(uid);
+    }
+
     let sql = `
-   SELECT rf.*, u.nombre AS enviado_por_nombre
-   FROM respuestas_formulario rf
-   LEFT JOIN usuarios u ON u.id = rf.enviado_por_id
- `;
-    let params = [];
+      SELECT rf.*, u.nombre AS enviado_por_nombre
+      FROM respuestas_formulario rf
+      LEFT JOIN usuarios u ON u.id = rf.enviado_por_id
+    `;
+    if (where.length) sql += ` WHERE ${where.join(" AND ")}`;
+    sql += " ORDER BY rf.enviado_at ASC";
+
     const [rows] = await pool.query(sql, params);
 
-    // Traer los usuarios para poder mapear analista/responsable
+    // Map nombres de usuarios
     const [usuarios] = await pool.query("SELECT id, nombre FROM usuarios");
     const usuariosMap = {};
-    usuarios.forEach((u) => {
-      usuariosMap[u.id] = u.nombre;
-    });
+    for (const u of usuarios) usuariosMap[u.id] = u.nombre;
 
-    // Definir columnas en el mismo orden que diste
     const columnas = [
-      "id",
-      "persona",
-      "tipo",
-      "documeto_paciente",
-      "nombre",
-      "sexo",
-      "origen",
-      "departamento",
-      "municipio",
-      "direccion",
-      "celular",
-      "correo",
-      "descripcion",
-      "archivo_nombre",
-      "archivo_ruta",
-      "enviado_at",
-      "estado",
-      "observaciones",
-      "medio",
-      "eps",
-      "analista",
-      "area_encargada",
-      "responsable",
-      "tipo_de_requerimiento",
-      "tipo_de_servicio",
-      "subtipologia",
-      "medio_de_contacto",
-      "requerimiento_de_la_solicitud",
-      "atribuible",
-      "por_que",
-      "fecha_limite_de_rta",
-      "respuesta_al_area_encargada",
-      "indicador_ans",
-      "oportunidad_real",
-      "oportunidad_operativa",
-      "fecha_de_cierre",
-      "fecha_respuesta_responsable",
-      "pregunta_reasignacion",
-      "respuesta_al_area_encargada_reasignacion",
-      "fecha_respuesta_responsable_reasignacion",
-      "mensaje_paciente",
-      "fecha_envio_paciente", // en tu tabla
-      "enviado_por_nombre",
-      "vencido",
+      "id","persona","tipo","documeto_paciente","nombre","sexo","origen","departamento",
+      "municipio","direccion","celular","correo","descripcion","archivo_nombre","archivo_ruta",
+      "enviado_at","estado","observaciones","medio","eps","analista","area_encargada","responsable",
+      "tipo_de_requerimiento","tipo_de_servicio","subtipologia","medio_de_contacto",
+      "requerimiento_de_la_solicitud","atribuible","por_que","fecha_limite_de_rta",
+      "respuesta_al_area_encargada","indicador_ans","oportunidad_real","oportunidad_operativa",
+      "fecha_de_cierre","fecha_respuesta_responsable","pregunta_reasignacion",
+      "respuesta_al_area_encargada_reasignacion","fecha_respuesta_responsable_reasignacion",
+      "mensaje_paciente","fecha_envio_paciente","enviado_por_nombre","vencido",
     ];
 
-    // Crear libro y hoja
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Respuestas");
+    worksheet.columns = columnas.map((key) => ({ header: key, key }));
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+    worksheet.getRow(1).font = { bold: true };
 
-    // Definir encabezados
-    worksheet.columns = columnas.map((key) => ({
-      header: key,
-      key,
-    }));
-
-    // Agregar filas
-    rows.forEach((row) => {
+    for (const row of rows) {
       const fila = {};
-      columnas.forEach((col) => {
-        if (col === "id") {
-          fila.id = `SAC${row.seq}`;
-        } else if (col === "analista" || col === "responsable") {
+      for (const col of columnas) {
+        if (col === "id") fila.id = `SAC-${row.seq}`;
+        else if (col === "analista" || col === "responsable")
           fila[col] = usuariosMap[row[col]] || row[col] || "";
-        } else {
-          fila[col] = row[col] ?? "";
-        }
-      });
+        else fila[col] = row[col] ?? "";
+      }
       worksheet.addRow(fila);
-    });
+    }
 
-    // Configura headers para descarga
     const fecha = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     res.setHeader(
       "Content-Type",
@@ -618,8 +676,8 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
       "Content-Disposition",
       `attachment; filename=respuestas_${fecha}.xlsx`
     );
+    res.setHeader("Cache-Control", "no-store");
 
-    // Enviar archivo
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
@@ -627,6 +685,8 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
     res.status(500).json({ success: false, message: "Error al exportar." });
   }
 });
+
+
 
 app.post("/api/tipificar", ensureAuth, async (req, res) => {
   let {
@@ -1148,33 +1208,30 @@ Gracias por comunicarse con nosotros.`;
 // Estadísticas PQRS
 app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
   try {
-    const rol = req.session.rol_id;
-    const uid = req.session.userId;
-    let extra = "",
-      params = [];
-    if (rol === 3) {
-      // Responsable: solo los suyos
+    const rol = Number(req.session.rol_id);
+    const uid = Number(req.session.userId);
+
+    let extra = "", params = [];
+    if (rol === 3) { // Responsable: solo los suyos
       extra = " AND responsable = ? ";
       params = [uid];
     }
+
     const [[pendientes]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE (estado IS NULL OR LOWER(estado)='pendiente')" +
-        extra,
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE (estado IS NULL OR LOWER(estado)='pendiente')" + extra,
       params
     );
     const [[gestion]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='en gestion'" +
-        extra,
+      // acepta en gestion y en gestión
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE (LOWER(estado)='en gestion' OR LOWER(estado)='en gestión')" + extra,
       params
     );
     const [[resueltas]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='resuelta'" +
-        extra,
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='resuelta'" + extra,
       params
     );
     const [[vencido]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE vencido='SI'" +
-        extra,
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE vencido='SI'" + extra,
       params
     );
     const [[total]] = await pool.query(
@@ -1186,13 +1243,15 @@ app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
       pendientes: pendientes.count,
       gestion: gestion.count,
       resueltas: resueltas.count,
-      vencido: vencido.count, // <--- aquí la nueva propiedad
+      vencido: vencido.count,
       total: total.count,
     });
   } catch (e) {
+    console.error(e);
     res.status(500).json({ success: false, message: e.message });
   }
 });
+
 // Buscar usuario por usuario/correo/nombre (solo admin o analista)
 app.get("/api/buscar-usuario", ensureAuth, async (req, res) => {
   if (![1, 2].includes(req.session.rol_id)) {
