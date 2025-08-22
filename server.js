@@ -234,7 +234,6 @@ app.use("/auth", express.static(path.join(__dirname, "public/auth")));
 // 4) Formulario público en la raíz (deja solo esta vez, al final)
 app.use("/", express.static(path.join(__dirname, "public/form")));
 
-
 async function ensureAuth(req, res, next) {
   if (!req.session?.userId) {
     return res.status(401).json({ success: false, message: "No autorizado" });
@@ -428,15 +427,15 @@ app.post("/api/submit", upload.single("adjunto"), async (req, res) => {
 app.get("/api/perfil", ensureAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT usuario,nombre,correo,rol_id, sede FROM usuarios WHERE id=?",
+      "SELECT id, usuario, nombre, correo, rol_id, sede FROM usuarios WHERE id=?",
       [req.session.userId]
     );
     if (!rows.length)
       return res.status(404).json({ success: false, message: "No encontrado" });
     res.json({ success: true, data: rows[0] });
   } catch (e) {
-  console.error('[PERFIL]', e);
-  res.status(500).json({ success: false, message: 'Error de servidor' });
+    console.error("[PERFIL]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
 app.get("/api/usuarios-por-rol/:rol_id", ensureAuth, async (req, res) => {
@@ -916,8 +915,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
           message: "Respuesta del responsable registrada.",
         });
       } catch (e) {
-  console.error('Tipificar (rol 3):', e);
-  return res.status(500).json({ success: false, message: 'Error de servidor' });
+        console.error("Tipificar (rol 3):", e);
+        return res
+          .status(500)
+          .json({ success: false, message: "Error de servidor" });
       }
     }
 
@@ -1258,8 +1259,8 @@ Gracias por comunicarse con nosotros.`;
 
       res.json({ success: true, message: "Correo enviado al paciente" });
     } catch (err) {
-  console.error('[/api/enviar-paciente]', err);
-  res.status(500).json({ success: false, message: 'Error de servidor' });
+      console.error("[/api/enviar-paciente]", err);
+      res.status(500).json({ success: false, message: "Error de servidor" });
     }
   }
 );
@@ -1312,8 +1313,8 @@ app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
       total: total.count,
     });
   } catch (e) {
-  console.error('[ESTADISTICAS:PQRS]', e);
-  res.status(500).json({ success: false, message: 'Error de servidor' });
+    console.error("[ESTADISTICAS:PQRS]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
 
@@ -1383,8 +1384,8 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
     }
     res.json({ success: true, message: "Usuario actualizado" });
   } catch (e) {
-  console.error('[USUARIOS:PATCH]', e);
-  res.status(500).json({ success: false, message: 'Error de servidor' });
+    console.error("[USUARIOS:PATCH]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
 
