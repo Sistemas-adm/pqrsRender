@@ -218,20 +218,22 @@ app.use("/", express.static(path.join(__dirname, "public/form")));
 // Estáticos
 
 // 1) DASHBOARD protegido en /dashboard  (los archivos están en public/auth/dashboard)
+// 1) DASHBOARD protegido en /dashboard  (sirve public/auth/dashboard)
 app.use(
   "/dashboard",
   gateDashboard,
   express.static(path.join(__dirname, "public/auth/dashboard"))
 );
 
-// 2) (opcional) Alias/redirect desde la vieja ruta /auth/dashboard -> /dashboard
-app.use("/auth/dashboard", (req, res) => res.redirect(301, "/dashboard/"));
+// 2) Alias: /auth/dashboard -> /dashboard (temporalmente 302 para evitar cache)
+app.use("/auth/dashboard", (req, res) => res.redirect(302, "/dashboard/"));
 
-// 3) Login y assets sueltos de /auth (público)
+// 3) Login y assets públicos de /auth
 app.use("/auth", express.static(path.join(__dirname, "public/auth")));
 
-// 4) El formulario público en la raíz
+// 4) Formulario público en la raíz (deja solo esta vez, al final)
 app.use("/", express.static(path.join(__dirname, "public/form")));
+
 
 async function ensureAuth(req, res, next) {
   if (!req.session?.userId) {
