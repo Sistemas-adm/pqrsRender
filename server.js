@@ -16,6 +16,11 @@ const saltRounds = 10;
 const helmet = require("helmet");
 const app = express();
 
+function fail500(res, label, err) {
+  console.error(`[${label}]`, err);
+  return res.status(500).json({ success: false, message: "Error de servidor" });
+}
+
 /* ---------- NUEVO: confiar en proxy (Render) y CORS por variable ---------- */
 
 app.set("trust proxy", 1); // cookies secure detrás de proxy (Render/Nginx)
@@ -169,7 +174,6 @@ app.get("/uploads/:filename", ensureAuth, async (req, res) => {
   }
 });
 
-
 // Nodemailer
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -187,7 +191,8 @@ app.get("/api/db-ping", async (req, res) => {
     const [rows] = await pool.query("SELECT 1 AS ok");
     res.json({ ok: true, db: rows[0].ok });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    console.error("[DB-PING]", e);
+    res.status(500).json({ ok: false, error: "Error de base de datos" });
   }
 });
 
@@ -244,7 +249,7 @@ function normEstado(s) {
     .trim()
     .toLowerCase()
     .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")   // si tu Node no soporta \p{...}, usa la versión de abajo
+    .replace(/\p{Diacritic}/gu, "") // si tu Node no soporta \p{...}, usa la versión de abajo
     .replace(/\s+/g, " ");
 }
 // Login / Logout
@@ -262,28 +267,38 @@ app.post("/api/login", async (req, res) => {
     );
 
     if (rows.length !== 1) {
-      return res.status(401).json({ success: false, message: "Credenciales inválidas" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Credenciales inválidas" });
     }
 
     const u = rows[0];
 
     if (u.activo !== 1) {
-      return res.status(403).json({ success: false, message: "Usuario inactivo" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Usuario inactivo" });
     }
 
     const match = await bcrypt.compare(clave, u.clave_hash);
     if (!match) {
-      return res.status(401).json({ success: false, message: "Credenciales inválidas" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Credenciales inválidas" });
     }
 
     if (!u.rol_id || !u.rol) {
-      return res.status(403).json({ success: false, message: "Usuario sin rol asignado" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Usuario sin rol asignado" });
     }
 
     req.session.regenerate((err) => {
       if (err) {
         console.error("Error al regenerar sesión:", err);
-        return res.status(500).json({ success: false, message: "Error de servidor" });
+        return res
+          .status(500)
+          .json({ success: false, message: "Error de servidor" });
       }
 
       req.session.userId = u.id;
@@ -295,7 +310,9 @@ app.post("/api/login", async (req, res) => {
       req.session.save((err2) => {
         if (err2) {
           console.error("Error al guardar sesión:", err2);
-          return res.status(500).json({ success: false, message: "Error de servidor" });
+          return res
+            .status(500)
+            .json({ success: false, message: "Error de servidor" });
         }
         return res.json({
           success: true,
@@ -306,11 +323,10 @@ app.post("/api/login", async (req, res) => {
       });
     });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: e.message });
+    console.error("[LOGIN]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
-
 
 // CREAR USUARIO (ADMIN/ANALISTA)
 app.post("/api/usuarios", ensureAuth, async (req, res) => {
@@ -338,8 +354,8 @@ app.post("/api/usuarios", ensureAuth, async (req, res) => {
     );
     res.json({ success: true, message: "Usuario creado" });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: e.message });
+    console.error("[USUARIOS:CREATE]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
 
@@ -390,8 +406,8 @@ app.post("/api/submit", upload.single("adjunto"), async (req, res) => {
     const [r] = await pool.execute(sql, valores);
     res.status(201).json({ success: true, insertId: r.insertId });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: e.message });
+    console.error("[SUBMIT]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
 
@@ -406,8 +422,8 @@ app.get("/api/perfil", ensureAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "No encontrado" });
     res.json({ success: true, data: rows[0] });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: e.message });
+  console.error('[PERFIL]', e);
+  res.status(500).json({ success: false, message: 'Error de servidor' });
   }
 });
 app.get("/api/usuarios-por-rol/:rol_id", ensureAuth, async (req, res) => {
@@ -421,8 +437,8 @@ app.get("/api/usuarios-por-rol/:rol_id", ensureAuth, async (req, res) => {
     );
     res.json(rows);
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: e.message });
+    console.error("[USUARIOS:POR_ROL]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
 
@@ -507,8 +523,8 @@ app.get("/api/respuestas", ensureAuth, async (req, res) => {
 
     res.json({ success: true, total, data: rows });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: e.message });
+    console.error("[RESPUESTAS:LIST]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
 
@@ -560,8 +576,6 @@ app.get("/api/respuesta/:seq", ensureAuth, async (req, res) => {
       .json({ success: false, message: "Error de servidor" });
   }
 });
-
-
 
 // Endpoint para exportar a Excel
 
@@ -634,15 +648,50 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
     for (const u of usuarios) usuariosMap[u.id] = u.nombre;
 
     const columnas = [
-      "id","persona","tipo","documeto_paciente","nombre","sexo","origen","departamento",
-      "municipio","direccion","celular","correo","descripcion","archivo_nombre","archivo_ruta",
-      "enviado_at","estado","observaciones","medio","eps","analista","area_encargada","responsable",
-      "tipo_de_requerimiento","tipo_de_servicio","subtipologia","medio_de_contacto",
-      "requerimiento_de_la_solicitud","atribuible","por_que","fecha_limite_de_rta",
-      "respuesta_al_area_encargada","indicador_ans","oportunidad_real","oportunidad_operativa",
-      "fecha_de_cierre","fecha_respuesta_responsable","pregunta_reasignacion",
-      "respuesta_al_area_encargada_reasignacion","fecha_respuesta_responsable_reasignacion",
-      "mensaje_paciente","fecha_envio_paciente","enviado_por_nombre","vencido",
+      "id",
+      "persona",
+      "tipo",
+      "documeto_paciente",
+      "nombre",
+      "sexo",
+      "origen",
+      "departamento",
+      "municipio",
+      "direccion",
+      "celular",
+      "correo",
+      "descripcion",
+      "archivo_nombre",
+      "archivo_ruta",
+      "enviado_at",
+      "estado",
+      "observaciones",
+      "medio",
+      "eps",
+      "analista",
+      "area_encargada",
+      "responsable",
+      "tipo_de_requerimiento",
+      "tipo_de_servicio",
+      "subtipologia",
+      "medio_de_contacto",
+      "requerimiento_de_la_solicitud",
+      "atribuible",
+      "por_que",
+      "fecha_limite_de_rta",
+      "respuesta_al_area_encargada",
+      "indicador_ans",
+      "oportunidad_real",
+      "oportunidad_operativa",
+      "fecha_de_cierre",
+      "fecha_respuesta_responsable",
+      "pregunta_reasignacion",
+      "respuesta_al_area_encargada_reasignacion",
+      "fecha_respuesta_responsable_reasignacion",
+      "mensaje_paciente",
+      "fecha_envio_paciente",
+      "enviado_por_nombre",
+      "vencido",
     ];
 
     const workbook = new ExcelJS.Workbook();
@@ -680,8 +729,6 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
     res.status(500).json({ success: false, message: "Error al exportar." });
   }
 });
-
-
 
 app.post("/api/tipificar", ensureAuth, async (req, res) => {
   let {
@@ -732,12 +779,14 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
     );
 
     // Determinar transición de estados
-    const nuevoEstado = (estado || "").toString().toLowerCase();
-    const anteriorEstado = (respuesta.estado || "").toString().toLowerCase();
+    // Determinar transición de estados (normalizados: minúsculas y sin tildes)
+    const nuevoEstadoNorm = normEstado(estado || "");
+    const anteriorEstadoNorm = normEstado(respuesta.estado || "");
     const esFinalizada =
-      nuevoEstado === "resuelta" && anteriorEstado !== "resuelta";
+      nuevoEstadoNorm === "resuelta" && anteriorEstadoNorm !== "resuelta";
     const esReapertura =
-      anteriorEstado === "resuelta" && nuevoEstado !== "resuelta";
+      anteriorEstadoNorm === "resuelta" && nuevoEstadoNorm !== "resuelta";
+
     // Dentro de /api/tipificar
 
     // Solo Admin/Analista/Auditor pueden reabrir
@@ -750,10 +799,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
 
     // Corrección: notificar cuando pase de RESUELTA -> EN GESTION
     const esEnGestionTransition =
-      anteriorEstado === "resuelta" && nuevoEstado === "en gestion";
+      anteriorEstadoNorm === "resuelta" && nuevoEstadoNorm === "en gestion";
 
     // Si estaba resuelta y sigue resuelta: sólo ciertos roles pueden editar estado (early return)
-    if (anteriorEstado === "resuelta" && nuevoEstado === "resuelta") {
+    if (anteriorEstadoNorm === "resuelta" && nuevoEstadoNorm === "resuelta") {
       if (![1, 2, 4].includes(usuarioRolActual.rol_id)) {
         return res.status(403).json({
           success: false,
@@ -774,8 +823,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
           message: "Estado actualizado correctamente",
         });
       } catch (e) {
-        console.error("Error en /api/tipificar (update solo estado):", e);
-        return res.status(500).json({ success: false, message: e.message });
+        console.error("[/api/tipificar:update-estado]", e);
+        return res
+          .status(500)
+          .json({ success: false, message: "Error de servidor" });
       }
     }
 
@@ -852,8 +903,8 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
           message: "Respuesta del responsable registrada.",
         });
       } catch (e) {
-        console.error("Tipificar (rol 3):", e);
-        return res.status(500).json({ success: false, message: e.message });
+  console.error('Tipificar (rol 3):', e);
+  return res.status(500).json({ success: false, message: 'Error de servidor' });
       }
     }
 
@@ -1063,8 +1114,8 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
       message: "Tipificación y notificaciones completadas",
     });
   } catch (e) {
-    console.error("Error en /api/tipificar:", e);
-    res.status(500).json({ success: false, message: e.message });
+    console.error("[/api/tipificar]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
 
@@ -1194,8 +1245,8 @@ Gracias por comunicarse con nosotros.`;
 
       res.json({ success: true, message: "Correo enviado al paciente" });
     } catch (err) {
-      console.error("Error en /api/enviar-paciente:", err);
-      res.status(500).json({ success: false, message: err.message });
+  console.error('[/api/enviar-paciente]', err);
+  res.status(500).json({ success: false, message: 'Error de servidor' });
     }
   }
 );
@@ -1206,27 +1257,33 @@ app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
     const rol = Number(req.session.rol_id);
     const uid = Number(req.session.userId);
 
-    let extra = "", params = [];
-    if (rol === 3) { // Responsable: solo los suyos
+    let extra = "",
+      params = [];
+    if (rol === 3) {
+      // Responsable: solo los suyos
       extra = " AND responsable = ? ";
       params = [uid];
     }
 
     const [[pendientes]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE (estado IS NULL OR LOWER(estado)='pendiente')" + extra,
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE (estado IS NULL OR LOWER(estado)='pendiente')" +
+        extra,
       params
     );
     const [[gestion]] = await pool.query(
       // acepta en gestion y en gestión
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE (LOWER(estado)='en gestion' OR LOWER(estado)='en gestión')" + extra,
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE (LOWER(estado)='en gestion' OR LOWER(estado)='en gestión')" +
+        extra,
       params
     );
     const [[resueltas]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='resuelta'" + extra,
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='resuelta'" +
+        extra,
       params
     );
     const [[vencido]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE vencido='SI'" + extra,
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE vencido='SI'" +
+        extra,
       params
     );
     const [[total]] = await pool.query(
@@ -1242,8 +1299,8 @@ app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
       total: total.count,
     });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: e.message });
+  console.error('[ESTADISTICAS:PQRS]', e);
+  res.status(500).json({ success: false, message: 'Error de servidor' });
   }
 });
 
@@ -1313,8 +1370,8 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
     }
     res.json({ success: true, message: "Usuario actualizado" });
   } catch (e) {
-    console.error("Error al actualizar usuario:", e);
-    res.status(500).json({ success: false, message: e.message });
+  console.error('[USUARIOS:PATCH]', e);
+  res.status(500).json({ success: false, message: 'Error de servidor' });
   }
 });
 
@@ -1337,6 +1394,11 @@ app.use((err, req, res, next) => {
       .json({ success: false, message: "Archivo supera el límite (10MB)" });
   }
   next(err);
+});
+app.use((err, req, res, next) => {
+  console.error("[UNHANDLED]", err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ success: false, message: "Error de servidor" });
 });
 
 app.listen(PORT, () => console.log(`Servidor escuchando en :${PORT}`));
