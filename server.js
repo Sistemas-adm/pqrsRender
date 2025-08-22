@@ -215,17 +215,24 @@ async function gateDashboard(req, res, next) {
 
 // Estáticos
 app.use("/", express.static(path.join(__dirname, "public/form")));
+// Estáticos
+
+// 1) DASHBOARD protegido en /dashboard  (los archivos están en public/auth/dashboard)
 app.use(
-  "/auth/dashboard",
+  "/dashboard",
   gateDashboard,
   express.static(path.join(__dirname, "public/auth/dashboard"))
 );
+
+// 2) (opcional) Alias/redirect desde la vieja ruta /auth/dashboard -> /dashboard
+app.use("/auth/dashboard", (req, res) => res.redirect(301, "/dashboard/"));
+
+// 3) Login y assets sueltos de /auth (público)
 app.use("/auth", express.static(path.join(__dirname, "public/auth")));
-app.use(
-  "/auth/dashboard",
-  gateDashboard,
-  express.static(path.join(__dirname, "public/auth/dashboard"))
-);
+
+// 4) El formulario público en la raíz
+app.use("/", express.static(path.join(__dirname, "public/form")));
+
 async function ensureAuth(req, res, next) {
   if (!req.session?.userId) {
     return res.status(401).json({ success: false, message: "No autorizado" });
