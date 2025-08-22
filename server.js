@@ -217,11 +217,10 @@ async function gateDashboard(req, res, next) {
 app.use("/", express.static(path.join(__dirname, "public/form")));
 app.use("/auth", express.static(path.join(__dirname, "public/auth")));
 app.use(
-  "/dashboard",
+  "/auth/dashboard",
   gateDashboard,
-  express.static(path.join(__dirname, "public/dashboard"))
+  express.static(path.join(__dirname, "public/auth/dashboard"))
 );
-
 async function ensureAuth(req, res, next) {
   if (!req.session?.userId) {
     return res.status(401).json({ success: false, message: "No autorizado" });
