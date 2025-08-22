@@ -215,6 +215,11 @@ async function gateDashboard(req, res, next) {
 
 // Estáticos
 app.use("/", express.static(path.join(__dirname, "public/form")));
+app.use(
+  "/auth/dashboard",
+  gateDashboard,
+  express.static(path.join(__dirname, "public/auth/dashboard"))
+);
 app.use("/auth", express.static(path.join(__dirname, "public/auth")));
 app.use(
   "/auth/dashboard",
