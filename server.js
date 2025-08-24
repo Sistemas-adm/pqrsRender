@@ -214,7 +214,6 @@ async function gateDashboard(req, res, next) {
 }
 
 // Estáticos
-app.use("/", express.static(path.join(__dirname, "public/form")));// Estáticos
 
 // 1) DASHBOARD protegido en /dashboard  (los archivos están en public/auth/dashboard)
 // 1) DASHBOARD protegido en /dashboard  (sirve public/auth/dashboard)
