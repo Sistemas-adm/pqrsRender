@@ -369,18 +369,37 @@ app.post("/api/usuarios", ensureAuth, async (req, res) => {
   }
 });
 
+// Antes de app.use(session(...))
+const COOKIE_SAMESITE = process.env.COOKIE_SAMESITE || "lax"; // si frontend y backend están en dominios distintos, usa "none"
+const COOKIE_SECURE = process.env.NODE_ENV === "production";
+
+const cookieProps = {
+  path: "/",
+  httpOnly: true,
+  secure: COOKIE_SECURE,
+  sameSite: COOKIE_SAMESITE, // "none" si API y web están en distintos dominios (siempre sobre HTTPS)
+};
+
+// Sesiones
+app.use(
+  session({
+    // opcional: fija un nombre propio a la cookie
+    name: "connect.sid",
+    secret: process.env.SESSION_SECRET || "change-me",
+    resave: false,
+    saveUninitialized: false,
+    store: sessionStore,
+    cookie: { ...cookieProps, maxAge: 3600000 },
+  })
+);
+
 app.post("/api/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) {
       console.error(err);
       return res.sendStatus(500);
     }
-    res.clearCookie("connect.sid", {
-      path: "/",
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.COOKIE_SAMESITE || "lax",
-    });
+    res.clearCookie("connect.sid", cookieProps);
     res.sendStatus(200);
   });
 });
