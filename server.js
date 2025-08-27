@@ -239,15 +239,7 @@ app.get("/uploads/:filename", ensureAuth, async (req, res) => {
   }
 });
 
-/* =================== Estáticos =================== */
-app.use(
-  "/dashboard",
-  gateDashboard,
-  express.static(path.join(__dirname, "public/auth/dashboard"))
-);
-app.use("/auth/dashboard", (req, res) => res.redirect(302, "/dashboard/"));
-app.use("/auth", express.static(path.join(__dirname, "public/auth")));
-app.use("/", express.static(path.join(__dirname, "public/form")));
+
 
 /* =================== Auth: Login / Logout =================== */
 app.post("/api/login", async (req, res) => {
@@ -1207,6 +1199,16 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
   }
 });
 
+
+/* =================== Estáticos =================== */
+app.use(
+  "/dashboard",
+  gateDashboard,
+  express.static(path.join(__dirname, "public/auth/dashboard"))
+);
+app.use("/auth/dashboard", (req, res) => res.redirect(302, "/dashboard/"));
+app.use("/auth", express.static(path.join(__dirname, "public/auth")));
+app.use("/", express.static(path.join(__dirname, "public/form")));
 /* =================== Errores =================== */
 app.use((err, req, res, next) => {
   if (err && err.message === "CORS blocked") {
