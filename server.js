@@ -215,41 +215,76 @@ function ensureAuthOrRedirect(req, res, next) {
   return res.status(401).json({ success: false, message: "No autorizado" });
 }
 /* =================== Rutas de archivos subidos =================== */
+/* =================== Rutas de archivos subidos =================== */
 app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
   try {
-    const raw = String(req.params.filename || "");
-    const filename = path.basename(raw);
-    
+    const rawParam = String(req.params.filename || "");
+    const reqName = path.basename(rawParam);                   // p.ej. "1756417467267-583916.png" o "583916.png"
+    const plainName = reqName.replace(/^\d{10,14}-/, "");      // "583916.png" (sin prefijo si existía)
+    const archivoRutaExacta     = `/uploads/${reqName}`;
+    const archivoRutaSinPrefijo = `/uploads/${plainName}`;
 
-    const archivoRuta = `/uploads/${filename}`;
+    // 1) Busca un registro que coincida:
+    //    - exactamente con lo pedido
+    //    - o con la versión sin prefijo
+    //    - o con "cualquier-prefijo-<plainName>"
     const [rows] = await pool.query(
-      "SELECT seq, responsable FROM respuestas_formulario WHERE archivo_ruta = ? LIMIT 1",
-      [archivoRuta]
+      `SELECT seq, responsable, archivo_ruta
+         FROM respuestas_formulario
+        WHERE archivo_ruta = ?
+           OR archivo_ruta = ?
+           OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
+        LIMIT 1`,
+      [archivoRutaExacta, archivoRutaSinPrefijo, plainName]
     );
+
     if (!rows.length) return res.status(404).send("No encontrado");
 
+    // 2) Autorización por rol / responsable
     const rol = Number(req.session.rol_id);
     const uid = Number(req.session.userId);
     const { responsable } = rows[0];
-
     if (rol === 3 && Number(responsable) !== uid) {
       return res.status(403).send("No autorizado");
     }
 
-    const abs = path.resolve(UPLOAD_DIR, filename);
-    const base = path.resolve(UPLOAD_DIR) + path.sep;
-    if (!abs.startsWith(base)) return res.status(400).send("Ruta inválida");
-    if (!fs.existsSync(abs)) return res.status(404).send("No encontrado");
+    // 3) Localiza el archivo físico admitiendo ambas variantes (con o sin prefijo)
+    //    a) nombre tal cual viene en la URL
+    //    b) nombre sin prefijo
+    //    c) busca un archivo que termine con "-plainName"
+    function exists(p) {
+      return fs.existsSync(p) && fs.statSync(p).isFile();
+    }
+    const candA = path.resolve(UPLOAD_DIR, reqName);
+    const candB = path.resolve(UPLOAD_DIR, plainName);
 
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    let abs = null;
+    if (exists(candA)) {
+      abs = candA;
+    } else if (exists(candB)) {
+      abs = candB;
+    } else {
+      // c) Busca "NNNNNNNNNNNN-<plainName>"
+      const tsRegex = new RegExp(`^\\d{10,14}-${plainName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`, "i");
+      const files = fs.readdirSync(UPLOAD_DIR);
+      const hit = files.find((f) => tsRegex.test(f));
+      if (hit && exists(path.join(UPLOAD_DIR, hit))) {
+        abs = path.join(UPLOAD_DIR, hit);
+      }
+    }
+
+    if (!abs) return res.status(404).send("No encontrado");
+
+    // 4) Envío
+    res.setHeader("Content-Disposition", `attachment; filename="${plainName}"`);
     res.setHeader("Cache-Control", "private, no-store");
-
     return res.sendFile(abs);
   } catch (e) {
     console.error("GET /uploads error:", e);
     return res.status(500).send("Error");
   }
 });
+
 
 
 
