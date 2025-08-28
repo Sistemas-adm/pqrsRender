@@ -154,9 +154,13 @@ function normEstado(s) {
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "public/form/uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+// Cambia el filename de Multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  filename: (req, file, cb) => {
+    const base = path.basename(file.originalname).replace(/[^\w.\-]/g, "_");
+    cb(null, base); // SIN timestamp
+  },
 });
 
 const upload = multer({
