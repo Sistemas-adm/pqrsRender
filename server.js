@@ -1209,11 +1209,8 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
 
 
 /* =================== Estáticos =================== */
-app.use(
-  "/dashboard",
-  gateDashboard,
-  express.static(path.join(__dirname, "public/auth/dashboard"))
-);
+app.use("/dashboard", gateDashboard, express.static(path.join(__dirname, "public/dashboard")));
+
 app.use("/auth/dashboard", (req, res) => res.redirect(302, "/dashboard/"));
 app.use("/auth", express.static(path.join(__dirname, "public/auth")));
 app.use("/", express.static(path.join(__dirname, "public/form")));
