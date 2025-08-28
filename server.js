@@ -200,14 +200,22 @@ app.get("/api/db-ping", async (req, res) => {
   }
 });
 
+
+function ensureAuthOrRedirect(req, res, next) {
+  const notAuthed = !req.session?.userId;
+  if (!notAuthed) return next();
+  const acceptsHtml = (req.headers.accept || "").includes("text/html");
+  if (acceptsHtml && req.method === "GET") {
+    return res.redirect(302, "/auth/index.html");
+  }
+  return res.status(401).json({ success: false, message: "No autorizado" });
+}
 /* =================== Rutas de archivos subidos =================== */
-app.get("/uploads/:filename", ensureAuth, async (req, res) => {
+app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
   try {
     const raw = String(req.params.filename || "");
     const filename = path.basename(raw);
-    if (!/^[\w.\-\s]+$/.test(filename)) {
-      return res.status(400).send("Nombre de archivo no válido");
-    }
+    
 
     const archivoRuta = `/uploads/${filename}`;
     const [rows] = await pool.query(
