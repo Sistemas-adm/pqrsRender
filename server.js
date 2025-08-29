@@ -13,10 +13,6 @@ const bcrypt = require("bcrypt");
 const ExcelJS = require("exceljs");
 const helmet = require("helmet");
 
-// === FTP para Hostinger ===
-const ftp = require("basic-ftp");
-const { Readable } = require("stream");
-
 const saltRounds = 10;
 const app = express();
 
@@ -24,40 +20,6 @@ const app = express();
 function fail500(res, label, err) {
   console.error(`[${label}]`, err);
   return res.status(500).json({ success: false, message: "Error de servidor" });
-}
-
-// Nombre seguro para archivo: agrega prefijo timestamp si no lo trae
-function safeBasename(name) {
-  const base = path.basename(name || "").replace(/[/\\]/g, "");
-  if (/^\d{10,14}-/.test(base)) return base;
-  return `${Date.now()}-${base}`;
-}
-
-// Sube un buffer al FTP (Hostinger) dentro de remoteDir con filename
-async function uploadBufferToHostinger(buffer, remoteDir, filename) {
-  const client = new ftp.Client(15_000);
-  try {
-    await client.access({
-      host: process.env.FTP_HOST,
-      port: +(process.env.FTP_PORT || 21),
-      user: process.env.FTP_USER,
-      password: process.env.FTP_PASS,
-      secure: String(process.env.FTP_SECURE) === "true",
-    });
-    await client.ensureDir(remoteDir);
-    await client.cd(remoteDir);
-    const stream = Readable.from(buffer);
-    await client.uploadFrom(stream, filename);
-  } finally {
-    client.close();
-  }
-}
-
-// Construye URL pública del archivo en Hostinger
-function hostingerPublicUrl(filename) {
-  const base = (process.env.HOSTINGER_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
-  const prefix = (process.env.HOSTINGER_UPLOADS_HTTP_PREFIX || "/public/form/uploads").replace(/\/+$/, "");
-  return `${base}${prefix}/${encodeURIComponent(filename)}`;
 }
 
 /* =================== Proxy, CORS, Helmet =================== */
@@ -188,12 +150,30 @@ function normEstado(s) {
 }
 
 /* =================== Uploads (Multer) =================== */
-// Mantén esta carpeta para compatibilidad con archivos viejos guardados en disco.
+// En Render el FS es efímero; usa disco persistente y apunta UPLOAD_DIR, ej: /data/uploads
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "public/form/uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-// ✅ NUEVO: usamos memoryStorage porque subiremos el buffer al FTP (Hostinger)
-const storage = multer.memoryStorage();
+// Cambia el filename de Multer
+// --- Reemplaza tu storage actual por este ---
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    // nombre original, sin rutas
+    const original = path.basename(file.originalname).replace(/[/\\]/g, "");
+
+    // si ya viene con prefijo TIMESTAMP-, no lo dupliques
+    if (/^\d{10,14}-/.test(original)) {
+      return cb(null, original);
+    }
+
+    const stamp = Date.now();
+    cb(null, `${stamp}-${original}`);
+  },
+});
+
+
+
 
 const upload = multer({
   storage,
@@ -236,6 +216,7 @@ app.get("/api/db-ping", async (req, res) => {
   }
 });
 
+
 function ensureAuthOrRedirect(req, res, next) {
   const notAuthed = !req.session?.userId;
   if (!notAuthed) return next();
@@ -245,52 +226,35 @@ function ensureAuthOrRedirect(req, res, next) {
   }
   return res.status(401).json({ success: false, message: "No autorizado" });
 }
-
 /* =================== Rutas de archivos subidos =================== */
-// PREVIEW INLINE (visualizar sin descargar)
-// Si el registro tiene URL absoluta (Hostinger), redirigimos a esa URL.
-// Para archivos viejos (disco local), se sirven desde UPLOAD_DIR.
-app.get("/uploads/preview/:filename", ensureAuthOrRedirect, async (req, res) => {
+/* =================== Rutas de archivos subidos =================== */
+// === PREVIEW INLINE (visualizar sin descargar) ===
+app.get('/uploads/preview/:filename', ensureAuthOrRedirect, async (req, res) => {
   try {
-    const raw = String(req.params.filename || "");
-    const reqName = path.basename(raw);
-    const plainName = reqName.replace(/^\d{10,14}-/, "");
-    const altPlain = plainName.replace(/\s+/g, "_");
+    const raw = String(req.params.filename || '');
+    const reqName   = path.basename(raw);                 // "1756-Archivo con espacios.jpg" o "Archivo con espacios.jpg"
+    const plainName = reqName.replace(/^\d{10,14}-/, ''); // sin prefijo
+    const altPlain  = plainName.replace(/\s+/g, '_');     // versión con "_", por compatibilidad
 
-    // Buscamos el registro por múltiples variantes (compatibilidad)
+    // 1) Validación en BD (y permisos para responsables)
     const [rows] = await pool.query(
       `SELECT seq, responsable, archivo_ruta
          FROM respuestas_formulario
         WHERE archivo_ruta IN (?, ?, ?)
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
-           OR archivo_ruta LIKE CONCAT('%/', ?)
-           OR archivo_ruta LIKE CONCAT('%/', ?)
         LIMIT 1`,
-      [
-        `/uploads/${reqName}`,
-        `/uploads/${plainName}`,
-        `/uploads/${altPlain}`,
-        plainName,
-        altPlain,
-        reqName,
-        plainName,
-      ]
+      [`/uploads/${reqName}`, `/uploads/${plainName}`, `/uploads/${altPlain}`, plainName, altPlain]
     );
-    if (!rows.length) return res.status(404).send("No encontrado");
+    if (!rows.length) return res.status(404).send('No encontrado');
 
     const rol = Number(req.session.rol_id);
     const uid = Number(req.session.userId);
     if (rol === 3 && Number(rows[0].responsable) !== uid) {
-      return res.status(403).send("No autorizado");
+      return res.status(403).send('No autorizado');
     }
 
-    // Si la ruta es absoluta (Hostinger), redirige.
-    if (/^https?:\/\//i.test(String(rows[0].archivo_ruta || ""))) {
-      return res.redirect(302, rows[0].archivo_ruta);
-    }
-
-    // Compatibilidad: buscar fichero en disco local
+    // 2) Localizar archivo físico admitiendo variantes (igual a tu /uploads actual)
     const candidates = [
       path.resolve(UPLOAD_DIR, reqName),
       path.resolve(UPLOAD_DIR, plainName),
@@ -298,91 +262,81 @@ app.get("/uploads/preview/:filename", ensureAuthOrRedirect, async (req, res) => 
     ];
     const files = fs.readdirSync(UPLOAD_DIR);
     const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const rx1 = new RegExp(`^\\d{10,14}-${esc(plainName)}$`, "i");
-    const rx2 = new RegExp(`^\\d{10,14}-${esc(altPlain)}$`, "i");
-    const hit1 = files.find((f) => rx1.test(f));
-    const hit2 = files.find((f) => rx2.test(f));
+    const rx1 = new RegExp(`^\\d{10,14}-${esc(plainName)}$`, 'i');
+    const rx2 = new RegExp(`^\\d{10,14}-${esc(altPlain)}$`, 'i');
+    const hit1 = files.find(f => rx1.test(f));
+    const hit2 = files.find(f => rx2.test(f));
     if (hit1) candidates.push(path.join(UPLOAD_DIR, hit1));
     if (hit2) candidates.push(path.join(UPLOAD_DIR, hit2));
 
-    const abs = candidates.find((p) => fs.existsSync(p) && fs.statSync(p).isFile());
-    if (!abs) return res.status(404).send("No encontrado");
+    const abs = candidates.find(p => fs.existsSync(p) && fs.statSync(p).isFile());
+    if (!abs) return res.status(404).send('No encontrado');
 
-    const ext = (path.extname(plainName).toLowerCase().slice(1)) || "";
-    const map = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif" };
-    const ctype = map[ext] || "application/octet-stream";
+    // 3) Servir INLINE con Content-Type correcto
+    const ext = (path.extname(plainName).toLowerCase().slice(1)) || '';
+    const map = { pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif' };
+    const ctype = map[ext] || 'application/octet-stream';
 
-    res.setHeader("Content-Type", ctype);
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(plainName)}`
-    );
-    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader('Content-Type', ctype);
+    res.setHeader('Content-Disposition', `inline; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(plainName)}`);
+    res.setHeader('Cache-Control', 'private, no-store');
 
     const stat = fs.statSync(abs);
-    res.setHeader("Content-Length", stat.size);
+    res.setHeader('Content-Length', stat.size);
     fs.createReadStream(abs).pipe(res);
   } catch (e) {
-    console.error("GET /uploads/preview error:", e);
-    res.status(500).send("Error");
+    console.error('GET /uploads/preview error:', e);
+    res.status(500).send('Error');
   }
 });
 
 app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
   try {
     const rawParam = String(req.params.filename || "");
-    const reqName = path.basename(rawParam);
-    const plainName = reqName.replace(/^\d{10,14}-/, "");
-    const altPlain = plainName.replace(/\s+/g, "_");
+    const reqName   = path.basename(rawParam);                // p.ej. "1756-Archivo con espacios.jpg" o "Archivo con espacios.jpg"
+    const plainName = reqName.replace(/^\d{10,14}-/, "");     // sin prefijo
+    const altPlain  = plainName.replace(/\s+/g, "_");         // versión con "_" por si el fichero viejo quedó así
 
+    const archivoRutaExacta     = `/uploads/${reqName}`;
+    const archivoRutaSinPrefijo = `/uploads/${plainName}`;
+    const archivoRutaAlt        = `/uploads/${altPlain}`;
+
+    // 1) Busca en BD por cualquiera de las variantes
     const [rows] = await pool.query(
       `SELECT seq, responsable, archivo_ruta
          FROM respuestas_formulario
         WHERE archivo_ruta IN (?, ?, ?)
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
-           OR archivo_ruta LIKE CONCAT('%/', ?)
-           OR archivo_ruta LIKE CONCAT('%/', ?)
         LIMIT 1`,
-      [
-        `/uploads/${reqName}`,
-        `/uploads/${plainName}`,
-        `/uploads/${altPlain}`,
-        plainName,
-        altPlain,
-        reqName,
-        plainName,
-      ]
+      [archivoRutaExacta, archivoRutaSinPrefijo, archivoRutaAlt, plainName, altPlain]
     );
     if (!rows.length) return res.status(404).send("No encontrado");
 
+    // 2) Autorización
     const rol = Number(req.session.rol_id);
     const uid = Number(req.session.userId);
     if (rol === 3 && Number(rows[0].responsable) !== uid) {
       return res.status(403).send("No autorizado");
     }
 
-    // Si la ruta es absoluta (Hostinger), redirige (o podrías forzar descarga si quieres).
-    if (/^https?:\/\//i.test(String(rows[0].archivo_ruta || ""))) {
-      return res.redirect(302, rows[0].archivo_ruta);
-    }
-
-    // Compatibilidad local:
+    // 3) Localiza el archivo físico admitiendo todas las variantes
     const cand = [
       path.resolve(UPLOAD_DIR, reqName),
       path.resolve(UPLOAD_DIR, plainName),
       path.resolve(UPLOAD_DIR, altPlain),
     ];
 
+    // Busca también "TIMESTAMP-plainName" y "TIMESTAMP-altPlain"
     const files = fs.readdirSync(UPLOAD_DIR);
     const rx1 = new RegExp(`^\\d{10,14}-${plainName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`, "i");
     const rx2 = new RegExp(`^\\d{10,14}-${altPlain.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`, "i");
-    const hit1 = files.find((f) => rx1.test(f));
-    const hit2 = files.find((f) => rx2.test(f));
+    const hit1 = files.find(f => rx1.test(f));
+    const hit2 = files.find(f => rx2.test(f));
     if (hit1) cand.push(path.join(UPLOAD_DIR, hit1));
     if (hit2) cand.push(path.join(UPLOAD_DIR, hit2));
 
-    const abs = cand.find((p) => fs.existsSync(p) && fs.statSync(p).isFile());
+    const abs = cand.find(p => fs.existsSync(p) && fs.statSync(p).isFile());
     if (!abs) return res.status(404).send("No encontrado");
 
     res.setHeader("Content-Disposition", `attachment; filename="${plainName}"`);
@@ -393,6 +347,9 @@ app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
     return res.status(500).send("Error");
   }
 });
+
+
+
 
 /* =================== Auth: Login / Logout =================== */
 app.post("/api/login", async (req, res) => {
@@ -462,6 +419,7 @@ app.post("/api/logout", (req, res) => {
       console.error(err);
       return res.sendStatus(500);
     }
+    // Limpia la cookie usando las mismas props
     res.clearCookie("connect.sid", cookieProps);
     res.sendStatus(200);
   });
@@ -525,7 +483,7 @@ app.get("/api/usuarios-por-rol/:rol_id", ensureAuth, async (req, res) => {
   }
 });
 
-// Submit Form -> SUBE a Hostinger (FTP) y guarda URL pública en BD
+// Submit Form
 app.post("/api/submit", upload.single("adjunto"), async (req, res) => {
   try {
     const campos = [
@@ -543,18 +501,8 @@ app.post("/api/submit", upload.single("adjunto"), async (req, res) => {
       "descripcion",
     ];
     const valores = campos.map((c) => req.body[c] || "");
-
-    let archivoNombre = null;
-    let archivoRuta = null;
-
-    if (req.file && req.file.buffer && req.file.originalname) {
-      archivoNombre = req.file.originalname;
-      const finalName = safeBasename(archivoNombre);
-      const remoteDir = process.env.FTP_BASE_DIR || "/public_html/public/form/uploads";
-      await uploadBufferToHostinger(req.file.buffer, remoteDir, finalName);
-      archivoRuta = hostingerPublicUrl(finalName); // URL absoluta pública en Hostinger
-    }
-
+    const archivoNombre = req.file?.originalname || null;
+    const archivoRuta = req.file ? `/uploads/${req.file.filename}` : null;
     valores.push(archivoNombre, archivoRuta);
 
     const sql = `INSERT INTO respuestas_formulario
@@ -566,8 +514,8 @@ app.post("/api/submit", upload.single("adjunto"), async (req, res) => {
     const [r] = await pool.execute(sql, valores);
     res.status(201).json({ success: true, insertId: r.insertId });
   } catch (e) {
-    console.error("[SUBMIT FTP]", e);
-    res.status(500).json({ success: false, message: "Error subiendo archivo a Hostinger" });
+    console.error("[SUBMIT]", e);
+    res.status(500).json({ success: false, message: "Error de servidor" });
   }
 });
 
@@ -1227,12 +1175,7 @@ Gracias por comunicarse con nosotros.`;
 
       const attachments = [];
       if (req.file) {
-        // ✅ con memoryStorage usamos el buffer, no path
-        attachments.push({
-          filename: req.file.originalname,
-          content: req.file.buffer,
-          contentType: req.file.mimetype,
-        });
+        attachments.push({ filename: req.file.originalname, path: req.file.path });
       }
       const firmaPath = path.join(__dirname, "public", "auth", "files", "Firma de PQRS.jpg");
       if (fs.existsSync(firmaPath)) {
@@ -1366,12 +1309,13 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
   }
 });
 
+
 /* =================== Estáticos =================== */
 app.use("/dashboard", gateDashboard, express.static(path.join(__dirname, "public/dashboard")));
+
 app.use("/auth/dashboard", (req, res) => res.redirect(302, "/dashboard/"));
 app.use("/auth", express.static(path.join(__dirname, "public/auth")));
 app.use("/", express.static(path.join(__dirname, "public/form")));
-
 /* =================== Errores =================== */
 app.use((err, req, res, next) => {
   if (err && err.message === "CORS blocked") {
