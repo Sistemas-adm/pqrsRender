@@ -158,10 +158,11 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
-    const base = path.basename(file.originalname).replace(/[^\w.\-]/g, "_");
-    cb(null, base); // SIN timestamp
+    // conserva el nombre exacto que sube el usuario (solo quitamos rutas)
+    cb(null, path.basename(file.originalname));
   },
 });
+
 
 const upload = multer({
   storage,
@@ -219,63 +220,52 @@ function ensureAuthOrRedirect(req, res, next) {
 app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
   try {
     const rawParam = String(req.params.filename || "");
-    const reqName = path.basename(rawParam);                   // p.ej. "1756417467267-583916.png" o "583916.png"
-    const plainName = reqName.replace(/^\d{10,14}-/, "");      // "583916.png" (sin prefijo si existía)
+    const reqName   = path.basename(rawParam);                // p.ej. "1756-Archivo con espacios.jpg" o "Archivo con espacios.jpg"
+    const plainName = reqName.replace(/^\d{10,14}-/, "");     // sin prefijo
+    const altPlain  = plainName.replace(/\s+/g, "_");         // versión con "_" por si el fichero viejo quedó así
+
     const archivoRutaExacta     = `/uploads/${reqName}`;
     const archivoRutaSinPrefijo = `/uploads/${plainName}`;
+    const archivoRutaAlt        = `/uploads/${altPlain}`;
 
-    // 1) Busca un registro que coincida:
-    //    - exactamente con lo pedido
-    //    - o con la versión sin prefijo
-    //    - o con "cualquier-prefijo-<plainName>"
+    // 1) Busca en BD por cualquiera de las variantes
     const [rows] = await pool.query(
       `SELECT seq, responsable, archivo_ruta
          FROM respuestas_formulario
-        WHERE archivo_ruta = ?
-           OR archivo_ruta = ?
+        WHERE archivo_ruta IN (?, ?, ?)
+           OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
         LIMIT 1`,
-      [archivoRutaExacta, archivoRutaSinPrefijo, plainName]
+      [archivoRutaExacta, archivoRutaSinPrefijo, archivoRutaAlt, plainName, altPlain]
     );
-
     if (!rows.length) return res.status(404).send("No encontrado");
 
-    // 2) Autorización por rol / responsable
+    // 2) Autorización
     const rol = Number(req.session.rol_id);
     const uid = Number(req.session.userId);
-    const { responsable } = rows[0];
-    if (rol === 3 && Number(responsable) !== uid) {
+    if (rol === 3 && Number(rows[0].responsable) !== uid) {
       return res.status(403).send("No autorizado");
     }
 
-    // 3) Localiza el archivo físico admitiendo ambas variantes (con o sin prefijo)
-    //    a) nombre tal cual viene en la URL
-    //    b) nombre sin prefijo
-    //    c) busca un archivo que termine con "-plainName"
-    function exists(p) {
-      return fs.existsSync(p) && fs.statSync(p).isFile();
-    }
-    const candA = path.resolve(UPLOAD_DIR, reqName);
-    const candB = path.resolve(UPLOAD_DIR, plainName);
+    // 3) Localiza el archivo físico admitiendo todas las variantes
+    const cand = [
+      path.resolve(UPLOAD_DIR, reqName),
+      path.resolve(UPLOAD_DIR, plainName),
+      path.resolve(UPLOAD_DIR, altPlain),
+    ];
 
-    let abs = null;
-    if (exists(candA)) {
-      abs = candA;
-    } else if (exists(candB)) {
-      abs = candB;
-    } else {
-      // c) Busca "NNNNNNNNNNNN-<plainName>"
-      const tsRegex = new RegExp(`^\\d{10,14}-${plainName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`, "i");
-      const files = fs.readdirSync(UPLOAD_DIR);
-      const hit = files.find((f) => tsRegex.test(f));
-      if (hit && exists(path.join(UPLOAD_DIR, hit))) {
-        abs = path.join(UPLOAD_DIR, hit);
-      }
-    }
+    // Busca también "TIMESTAMP-plainName" y "TIMESTAMP-altPlain"
+    const files = fs.readdirSync(UPLOAD_DIR);
+    const rx1 = new RegExp(`^\\d{10,14}-${plainName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`, "i");
+    const rx2 = new RegExp(`^\\d{10,14}-${altPlain.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`, "i");
+    const hit1 = files.find(f => rx1.test(f));
+    const hit2 = files.find(f => rx2.test(f));
+    if (hit1) cand.push(path.join(UPLOAD_DIR, hit1));
+    if (hit2) cand.push(path.join(UPLOAD_DIR, hit2));
 
+    const abs = cand.find(p => fs.existsSync(p) && fs.statSync(p).isFile());
     if (!abs) return res.status(404).send("No encontrado");
 
-    // 4) Envío
     res.setHeader("Content-Disposition", `attachment; filename="${plainName}"`);
     res.setHeader("Cache-Control", "private, no-store");
     return res.sendFile(abs);
