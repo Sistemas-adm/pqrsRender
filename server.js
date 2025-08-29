@@ -155,13 +155,23 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "public/form/u
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // Cambia el filename de Multer
+// --- Reemplaza tu storage actual por este ---
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
-    // conserva el nombre exacto que sube el usuario (solo quitamos rutas)
-    cb(null, path.basename(file.originalname));
+    // nombre original, sin rutas
+    const original = path.basename(file.originalname).replace(/[/\\]/g, "");
+
+    // si ya viene con prefijo TIMESTAMP-, no lo dupliques
+    if (/^\d{10,14}-/.test(original)) {
+      return cb(null, original);
+    }
+
+    const stamp = Date.now();
+    cb(null, `${stamp}-${original}`);
   },
 });
+
 
 
 const upload = multer({
