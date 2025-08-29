@@ -227,6 +227,68 @@ function ensureAuthOrRedirect(req, res, next) {
 }
 /* =================== Rutas de archivos subidos =================== */
 /* =================== Rutas de archivos subidos =================== */
+// === PREVIEW INLINE (visualizar sin descargar) ===
+app.get('/uploads/preview/:filename', ensureAuthOrRedirect, async (req, res) => {
+  try {
+    const raw = String(req.params.filename || '');
+    const reqName   = path.basename(raw);                 // "1756-Archivo con espacios.jpg" o "Archivo con espacios.jpg"
+    const plainName = reqName.replace(/^\d{10,14}-/, ''); // sin prefijo
+    const altPlain  = plainName.replace(/\s+/g, '_');     // versión con "_", por compatibilidad
+
+    // 1) Validación en BD (y permisos para responsables)
+    const [rows] = await pool.query(
+      `SELECT seq, responsable, archivo_ruta
+         FROM respuestas_formulario
+        WHERE archivo_ruta IN (?, ?, ?)
+           OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
+           OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
+        LIMIT 1`,
+      [`/uploads/${reqName}`, `/uploads/${plainName}`, `/uploads/${altPlain}`, plainName, altPlain]
+    );
+    if (!rows.length) return res.status(404).send('No encontrado');
+
+    const rol = Number(req.session.rol_id);
+    const uid = Number(req.session.userId);
+    if (rol === 3 && Number(rows[0].responsable) !== uid) {
+      return res.status(403).send('No autorizado');
+    }
+
+    // 2) Localizar archivo físico admitiendo variantes (igual a tu /uploads actual)
+    const candidates = [
+      path.resolve(UPLOAD_DIR, reqName),
+      path.resolve(UPLOAD_DIR, plainName),
+      path.resolve(UPLOAD_DIR, altPlain),
+    ];
+    const files = fs.readdirSync(UPLOAD_DIR);
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx1 = new RegExp(`^\\d{10,14}-${esc(plainName)}$`, 'i');
+    const rx2 = new RegExp(`^\\d{10,14}-${esc(altPlain)}$`, 'i');
+    const hit1 = files.find(f => rx1.test(f));
+    const hit2 = files.find(f => rx2.test(f));
+    if (hit1) candidates.push(path.join(UPLOAD_DIR, hit1));
+    if (hit2) candidates.push(path.join(UPLOAD_DIR, hit2));
+
+    const abs = candidates.find(p => fs.existsSync(p) && fs.statSync(p).isFile());
+    if (!abs) return res.status(404).send('No encontrado');
+
+    // 3) Servir INLINE con Content-Type correcto
+    const ext = (path.extname(plainName).toLowerCase().slice(1)) || '';
+    const map = { pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif' };
+    const ctype = map[ext] || 'application/octet-stream';
+
+    res.setHeader('Content-Type', ctype);
+    res.setHeader('Content-Disposition', `inline; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(plainName)}`);
+    res.setHeader('Cache-Control', 'private, no-store');
+
+    const stat = fs.statSync(abs);
+    res.setHeader('Content-Length', stat.size);
+    fs.createReadStream(abs).pipe(res);
+  } catch (e) {
+    console.error('GET /uploads/preview error:', e);
+    res.status(500).send('Error');
+  }
+});
+
 app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
   try {
     const rawParam = String(req.params.filename || "");
