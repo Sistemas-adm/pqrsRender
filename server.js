@@ -12,6 +12,7 @@ const nodemailer = require("nodemailer");
 const bcrypt = require("bcrypt");
 const ExcelJS = require("exceljs");
 const helmet = require("helmet");
+const SFTPClient = require("ssh2-sftp-client"); // <-- nuevo
 
 const saltRounds = 10;
 const app = express();
@@ -149,31 +150,9 @@ function normEstado(s) {
     .replace(/\s+/g, " ");
 }
 
-/* =================== Uploads (Multer) =================== */
-// En Render el FS es efímero; usa disco persistente y apunta UPLOAD_DIR, ej: /data/uploads
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "public/form/uploads");
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-// Cambia el filename de Multer
-// --- Reemplaza tu storage actual por este ---
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    // nombre original, sin rutas
-    const original = path.basename(file.originalname).replace(/[/\\]/g, "");
-
-    // si ya viene con prefijo TIMESTAMP-, no lo dupliques
-    if (/^\d{10,14}-/.test(original)) {
-      return cb(null, original);
-    }
-
-    const stamp = Date.now();
-    cb(null, `${stamp}-${original}`);
-  },
-});
-
-
-
+/* =================== Uploads (Opción B: SFTP remoto) =================== */
+// Multer en memoria: subimos a Hostinger por SFTP
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -193,6 +172,58 @@ const upload = multer({
     return cb(byExt ? null : new Error("Tipo de archivo no permitido"), byExt);
   },
 });
+
+// Helpers de nombre/mime/SFTP
+function safeOriginalName(original) {
+  const base = path.basename(original || "").replace(/[/\\]/g, "");
+  return base.replace(/[^\w.\- ]/g, "_");
+}
+function withTimestamp(name) {
+  return /^\d{10,14}-/.test(name) ? name : `${Date.now()}-${name}`;
+}
+function extToMime(ext) {
+  const map = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif" };
+  return map[(ext || "").toLowerCase()] || "application/octet-stream";
+}
+async function sftpConnect() {
+  const sftp = new SFTPClient();
+  await sftp.connect({
+    host: process.env.SFTP_HOST,
+    port: Number(process.env.SFTP_PORT || 22),
+    username: process.env.SFTP_USER,
+    password: process.env.SFTP_PASS,
+  });
+  return sftp;
+}
+async function sftpUploadBuffer(fileName, buffer) {
+  const remoteDir = process.env.SFTP_BASE_DIR; // ruta ABS en Hostinger
+  const remotePath = path.posix.join(remoteDir, fileName);
+  const sftp = await sftpConnect();
+  try {
+    const exists = await sftp.exists(remoteDir);
+    if (!exists) await sftp.mkdir(remoteDir, true);
+    await sftp.put(buffer, remotePath);
+    return remotePath;
+  } finally {
+    sftp.end();
+  }
+}
+async function sftpStat(remoteAbs) {
+  const sftp = await sftpConnect();
+  try {
+    return await sftp.stat(remoteAbs);
+  } finally {
+    sftp.end();
+  }
+}
+async function sftpPipeToRes(remoteAbs, res) {
+  const sftp = await sftpConnect();
+  try {
+    await sftp.get(remoteAbs, res); // stream hacia el response
+  } finally {
+    sftp.end();
+  }
+}
 
 /* =================== Nodemailer =================== */
 const transporter = nodemailer.createTransport({
@@ -216,7 +247,6 @@ app.get("/api/db-ping", async (req, res) => {
   }
 });
 
-
 function ensureAuthOrRedirect(req, res, next) {
   const notAuthed = !req.session?.userId;
   if (!notAuthed) return next();
@@ -226,17 +256,16 @@ function ensureAuthOrRedirect(req, res, next) {
   }
   return res.status(401).json({ success: false, message: "No autorizado" });
 }
-/* =================== Rutas de archivos subidos =================== */
-/* =================== Rutas de archivos subidos =================== */
-// === PREVIEW INLINE (visualizar sin descargar) ===
-app.get('/uploads/preview/:filename', ensureAuthOrRedirect, async (req, res) => {
-  try {
-    const raw = String(req.params.filename || '');
-    const reqName   = path.basename(raw);                 // "1756-Archivo con espacios.jpg" o "Archivo con espacios.jpg"
-    const plainName = reqName.replace(/^\d{10,14}-/, ''); // sin prefijo
-    const altPlain  = plainName.replace(/\s+/g, '_');     // versión con "_", por compatibilidad
 
-    // 1) Validación en BD (y permisos para responsables)
+/* =================== Rutas de archivos subidos (stream desde Hostinger) =================== */
+// PREVIEW inline
+app.get("/uploads/preview/:filename", ensureAuthOrRedirect, async (req, res) => {
+  try {
+    const reqName = path.basename(String(req.params.filename || ""));
+    const plainName = reqName.replace(/^\d{10,14}-/, "");
+    const altPlain = plainName.replace(/\s+/g, "_");
+
+    // Valida contra BD y resuelve el nombre REAL
     const [rows] = await pool.query(
       `SELECT seq, responsable, archivo_ruta
          FROM respuestas_formulario
@@ -246,62 +275,44 @@ app.get('/uploads/preview/:filename', ensureAuthOrRedirect, async (req, res) => 
         LIMIT 1`,
       [`/uploads/${reqName}`, `/uploads/${plainName}`, `/uploads/${altPlain}`, plainName, altPlain]
     );
-    if (!rows.length) return res.status(404).send('No encontrado');
+    if (!rows.length) return res.status(404).send("No encontrado");
 
     const rol = Number(req.session.rol_id);
     const uid = Number(req.session.userId);
     if (rol === 3 && Number(rows[0].responsable) !== uid) {
-      return res.status(403).send('No autorizado');
+      return res.status(403).send("No autorizado");
     }
 
-    // 2) Localizar archivo físico admitiendo variantes (igual a tu /uploads actual)
-    const candidates = [
-      path.resolve(UPLOAD_DIR, reqName),
-      path.resolve(UPLOAD_DIR, plainName),
-      path.resolve(UPLOAD_DIR, altPlain),
-    ];
-    const files = fs.readdirSync(UPLOAD_DIR);
-    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const rx1 = new RegExp(`^\\d{10,14}-${esc(plainName)}$`, 'i');
-    const rx2 = new RegExp(`^\\d{10,14}-${esc(altPlain)}$`, 'i');
-    const hit1 = files.find(f => rx1.test(f));
-    const hit2 = files.find(f => rx2.test(f));
-    if (hit1) candidates.push(path.join(UPLOAD_DIR, hit1));
-    if (hit2) candidates.push(path.join(UPLOAD_DIR, hit2));
+    const realFile = path.posix.basename(rows[0].archivo_ruta || reqName);
+    const remoteAbs = path.posix.join(process.env.SFTP_BASE_DIR, realFile);
 
-    const abs = candidates.find(p => fs.existsSync(p) && fs.statSync(p).isFile());
-    if (!abs) return res.status(404).send('No encontrado');
+    const ext = path.extname(realFile).slice(1);
+    res.setHeader("Content-Type", extToMime(ext));
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(plainName)}`
+    );
+    res.setHeader("Cache-Control", "private, no-store");
 
-    // 3) Servir INLINE con Content-Type correcto
-    const ext = (path.extname(plainName).toLowerCase().slice(1)) || '';
-    const map = { pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif' };
-    const ctype = map[ext] || 'application/octet-stream';
+    try {
+      const st = await sftpStat(remoteAbs);
+      if (st && st.size) res.setHeader("Content-Length", st.size);
+    } catch {}
 
-    res.setHeader('Content-Type', ctype);
-    res.setHeader('Content-Disposition', `inline; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(plainName)}`);
-    res.setHeader('Cache-Control', 'private, no-store');
-
-    const stat = fs.statSync(abs);
-    res.setHeader('Content-Length', stat.size);
-    fs.createReadStream(abs).pipe(res);
+    await sftpPipeToRes(remoteAbs, res);
   } catch (e) {
-    console.error('GET /uploads/preview error:', e);
-    res.status(500).send('Error');
+    console.error("GET /uploads/preview error:", e);
+    res.status(500).send("Error");
   }
 });
 
+// DESCARGA (attachment)
 app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
   try {
-    const rawParam = String(req.params.filename || "");
-    const reqName   = path.basename(rawParam);                // p.ej. "1756-Archivo con espacios.jpg" o "Archivo con espacios.jpg"
-    const plainName = reqName.replace(/^\d{10,14}-/, "");     // sin prefijo
-    const altPlain  = plainName.replace(/\s+/g, "_");         // versión con "_" por si el fichero viejo quedó así
+    const reqName = path.basename(String(req.params.filename || ""));
+    const plainName = reqName.replace(/^\d{10,14}-/, "");
+    const altPlain = plainName.replace(/\s+/g, "_");
 
-    const archivoRutaExacta     = `/uploads/${reqName}`;
-    const archivoRutaSinPrefijo = `/uploads/${plainName}`;
-    const archivoRutaAlt        = `/uploads/${altPlain}`;
-
-    // 1) Busca en BD por cualquiera de las variantes
     const [rows] = await pool.query(
       `SELECT seq, responsable, archivo_ruta
          FROM respuestas_formulario
@@ -309,47 +320,38 @@ app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
         LIMIT 1`,
-      [archivoRutaExacta, archivoRutaSinPrefijo, archivoRutaAlt, plainName, altPlain]
+      [`/uploads/${reqName}`, `/uploads/${plainName}`, `/uploads/${altPlain}`, plainName, altPlain]
     );
     if (!rows.length) return res.status(404).send("No encontrado");
 
-    // 2) Autorización
     const rol = Number(req.session.rol_id);
     const uid = Number(req.session.userId);
     if (rol === 3 && Number(rows[0].responsable) !== uid) {
       return res.status(403).send("No autorizado");
     }
 
-    // 3) Localiza el archivo físico admitiendo todas las variantes
-    const cand = [
-      path.resolve(UPLOAD_DIR, reqName),
-      path.resolve(UPLOAD_DIR, plainName),
-      path.resolve(UPLOAD_DIR, altPlain),
-    ];
+    const realFile = path.posix.basename(rows[0].archivo_ruta || reqName);
+    const remoteAbs = path.posix.join(process.env.SFTP_BASE_DIR, realFile);
 
-    // Busca también "TIMESTAMP-plainName" y "TIMESTAMP-altPlain"
-    const files = fs.readdirSync(UPLOAD_DIR);
-    const rx1 = new RegExp(`^\\d{10,14}-${plainName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`, "i");
-    const rx2 = new RegExp(`^\\d{10,14}-${altPlain.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}$`, "i");
-    const hit1 = files.find(f => rx1.test(f));
-    const hit2 = files.find(f => rx2.test(f));
-    if (hit1) cand.push(path.join(UPLOAD_DIR, hit1));
-    if (hit2) cand.push(path.join(UPLOAD_DIR, hit2));
-
-    const abs = cand.find(p => fs.existsSync(p) && fs.statSync(p).isFile());
-    if (!abs) return res.status(404).send("No encontrado");
-
-    res.setHeader("Content-Disposition", `attachment; filename="${plainName}"`);
+    const ext = path.extname(realFile).slice(1);
+    res.setHeader("Content-Type", extToMime(ext));
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(plainName)}`
+    );
     res.setHeader("Cache-Control", "private, no-store");
-    return res.sendFile(abs);
+
+    try {
+      const st = await sftpStat(remoteAbs);
+      if (st && st.size) res.setHeader("Content-Length", st.size);
+    } catch {}
+
+    await sftpPipeToRes(remoteAbs, res);
   } catch (e) {
     console.error("GET /uploads error:", e);
-    return res.status(500).send("Error");
+    res.status(500).send("Error");
   }
 });
-
-
-
 
 /* =================== Auth: Login / Logout =================== */
 app.post("/api/login", async (req, res) => {
@@ -419,7 +421,6 @@ app.post("/api/logout", (req, res) => {
       console.error(err);
       return res.sendStatus(500);
     }
-    // Limpia la cookie usando las mismas props
     res.clearCookie("connect.sid", cookieProps);
     res.sendStatus(200);
   });
@@ -483,7 +484,7 @@ app.get("/api/usuarios-por-rol/:rol_id", ensureAuth, async (req, res) => {
   }
 });
 
-// Submit Form
+// Submit Form (sube archivo a Hostinger por SFTP)
 app.post("/api/submit", upload.single("adjunto"), async (req, res) => {
   try {
     const campos = [
@@ -501,8 +502,18 @@ app.post("/api/submit", upload.single("adjunto"), async (req, res) => {
       "descripcion",
     ];
     const valores = campos.map((c) => req.body[c] || "");
-    const archivoNombre = req.file?.originalname || null;
-    const archivoRuta = req.file ? `/uploads/${req.file.filename}` : null;
+
+    let archivoNombre = null;
+    let archivoRuta = null;
+
+    if (req.file) {
+      const original = safeOriginalName(req.file.originalname);
+      const finalName = withTimestamp(original);
+      await sftpUploadBuffer(finalName, req.file.buffer); // SUBE a Hostinger
+      archivoNombre = original; // nombre "bonito" para mostrar
+      archivoRuta = `/uploads/${finalName}`; // path que guardamos en BD
+    }
+
     valores.push(archivoNombre, archivoRuta);
 
     const sql = `INSERT INTO respuestas_formulario
@@ -1097,7 +1108,7 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
   }
 });
 
-// Enviar mensaje al paciente
+// Enviar mensaje al paciente (adjunto desde memoria)
 app.post(
   "/api/enviar-paciente",
   ensureAuth,
@@ -1175,7 +1186,10 @@ Gracias por comunicarse con nosotros.`;
 
       const attachments = [];
       if (req.file) {
-        attachments.push({ filename: req.file.originalname, path: req.file.path });
+        attachments.push({
+          filename: req.file.originalname,
+          content: req.file.buffer, // desde memoria
+        });
       }
       const firmaPath = path.join(__dirname, "public", "auth", "files", "Firma de PQRS.jpg");
       if (fs.existsSync(firmaPath)) {
@@ -1309,13 +1323,12 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
   }
 });
 
-
 /* =================== Estáticos =================== */
 app.use("/dashboard", gateDashboard, express.static(path.join(__dirname, "public/dashboard")));
-
 app.use("/auth/dashboard", (req, res) => res.redirect(302, "/dashboard/"));
 app.use("/auth", express.static(path.join(__dirname, "public/auth")));
 app.use("/", express.static(path.join(__dirname, "public/form")));
+
 /* =================== Errores =================== */
 app.use((err, req, res, next) => {
   if (err && err.message === "CORS blocked") {
