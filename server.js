@@ -1209,18 +1209,57 @@ const uploadMem = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+// Firma pública (puedes mover esto arriba del archivo con el resto de ENV)
+const FIRMA_URL =
+  process.env.FIRMA_URL ||
+  "https://modulo-acciones-pqrs.mtdom.com/files/Firma%20de%20PQRS.jpg";
+
+// fetch seguro (soporta Node <18 sin fetch global)
+const safeFetch = (...args) =>
+  (global.fetch
+    ? global.fetch(...args)
+    : import("node-fetch").then(({ default: f }) => f(...args)));
+
+// Helper: descarga la firma desde la URL y devuelve { buf, contentType, filename }
+async function loadFirmaInlineFromUrl() {
+  try {
+    const r = await safeFetch(FIRMA_URL, {
+      // algunos hostings bloquean sin UA
+      headers: { "User-Agent": "MTD-Mailer/1.0" },
+      // evita caches en edge
+      cache: "no-store",
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const ct =
+      (r.headers.get("content-type") || "image/jpeg").split(";")[0].trim() ||
+      "image/jpeg";
+    const ab = await r.arrayBuffer();
+    const buf = Buffer.from(ab);
+    if (!buf || buf.length < 64) throw new Error("firma vacía/pequeña");
+    const filename = path.basename(new URL(FIRMA_URL).pathname) || "firma.jpg";
+    return { buf, contentType: ct, filename };
+  } catch (e) {
+    console.warn("[firma] descarga por URL falló:", e.message);
+    return null;
+  }
+}
+
 app.post(
   "/api/enviar-paciente",
   ensureAuth,
   uploadMem.single("archivoAdjunto"), // memoria, NO disco
   async (req, res) => {
     if (![1, 2].includes(req.session.rol_id)) {
-      return res.status(403).json({ success: false, message: "No autorizado" });
+      return res
+        .status(403)
+        .json({ success: false, message: "No autorizado" });
     }
 
     const { seq, mensaje } = req.body;
     if (!seq || !mensaje) {
-      return res.status(400).json({ success: false, message: "Falta seq o mensaje" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Falta seq o mensaje" });
     }
 
     try {
@@ -1241,7 +1280,9 @@ app.post(
         [seq]
       );
       if (!row || !row.correo) {
-        return res.status(404).json({ success: false, message: "Paciente no encontrado" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Paciente no encontrado" });
       }
 
       const plantillaText = `Buen día ${row.nombre}, cordial saludo.
@@ -1286,7 +1327,7 @@ Gracias por comunicarse con nosotros.`;
       // ---------------- ADJUNTOS ----------------
       const attachments = [];
 
-      // 1) Adjunto opcional subido por el analista (memoria)
+      // 1) Adjunto opcional que sube el analista (memoria)
       if (req.file) {
         attachments.push({
           filename: req.file.originalname,
@@ -1294,62 +1335,25 @@ Gracias por comunicarse con nosotros.`;
         });
       }
 
-      // 2) Firma inline por CID (robusta, una sola vez)
-      function findFirmaAsset() {
-        const baseDir = path.join(__dirname, "public", "auth", "files");
-        const candidates = [
-          "Firma de PQRS.jpg",
-          "Firma de PQRS.jpeg",
-          "firma de pqrs.jpg",
-          "firma de pqrs.jpeg",
-          "Firma.jpg",
-          "firma.jpg",
-          "Firma.png",
-          "firma.png",
-        ];
-
-        for (const name of candidates) {
-          const p = path.join(baseDir, name);
-          if (fs.existsSync(p)) return p;
-        }
-
-        // Búsqueda flexible por regex si el nombre difiere
-        try {
-          const files = fs.readdirSync(baseDir);
-          const hit = files.find((f) =>
-            /^firma.*pqrs\.(jpe?g|png)$/i.test(f) || /^firma\.(jpe?g|png)$/i.test(f)
-          );
-          if (hit) return path.join(baseDir, hit);
-        } catch (e) {
-          console.warn("[firma] No pude leer el directorio:", baseDir, e.message);
-        }
-        return null;
-      }
-
-      function guessMimeByExt(filePath) {
-        const ext = (path.extname(filePath) || "").toLowerCase();
-        if (ext === ".png") return "image/png";
-        return "image/jpeg"; // default
-      }
-
-      try {
-        const firmaAbs = findFirmaAsset();
-        console.log("[firma] ruta:", firmaAbs);
-        if (firmaAbs) {
-          const buf = fs.readFileSync(firmaAbs);
-          console.log("[firma] bytes:", buf.length);
-          attachments.push({
-            filename: path.basename(firmaAbs),
-            content: buf,
-            cid: "mtd-logo",                     // ¡Debe coincidir con el HTML!
-            contentType: guessMimeByExt(firmaAbs),
-            contentDisposition: "inline",
-          });
-        } else {
-          console.warn("[firma] No se encontró archivo de firma; correo sin imagen inline.");
-        }
-      } catch (e) {
-        console.warn("[firma] Error leyendo firma:", e.message);
+      // 2) Firma inline vía URL pública
+      const firma = await loadFirmaInlineFromUrl();
+      if (firma) {
+        console.log(
+          "[firma] OK:",
+          firma.filename,
+          firma.contentType,
+          firma.buf.length,
+          "bytes"
+        );
+        attachments.push({
+          filename: firma.filename,
+          content: firma.buf,
+          cid: "mtd-logo", // Debe coincidir con el HTML
+          contentType: firma.contentType,
+          contentDisposition: "inline",
+        });
+      } else {
+        console.warn("[firma] no disponible; correo se envía sin imagen inline.");
       }
 
       await transporter.sendMail({
@@ -1368,6 +1372,7 @@ Gracias por comunicarse con nosotros.`;
     }
   }
 );
+
 
 
 
