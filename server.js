@@ -520,7 +520,7 @@ app.get("/api/perfil", ensureAuth, async (req, res) => {
 
 // Usuarios por rol
 app.get("/api/usuarios-por-rol/:rol_id", ensureAuth, async (req, res) => {
-  if (![1, 2, 4].includes(req.session.rol_id)) {
+  if (![1, 2,3, 4].includes(req.session.rol_id)) {
     return res.status(403).json({ success: false, message: "No autorizado" });
   }
   try {
