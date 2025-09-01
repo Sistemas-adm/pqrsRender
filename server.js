@@ -40,7 +40,9 @@ app.use(
       if (!origin) return cb(null, true);
       if (allowed.length === 0 && !allowAllIfEmpty)
         return cb(new Error("CORS blocked"));
-      return allowed.includes(origin) ? cb(null, true) : cb(new Error("CORS blocked"));
+      return allowed.includes(origin)
+        ? cb(null, true)
+        : cb(new Error("CORS blocked"));
     },
     credentials: true,
     exposedHeaders: ["Content-Disposition"],
@@ -114,7 +116,9 @@ async function ensureAuth(req, res, next) {
     ]);
     if (!u || u.activo !== 1) {
       req.session.destroy(() => {});
-      return res.status(403).json({ success: false, message: "Usuario inactivo" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Usuario inactivo" });
     }
     next();
   } catch (e) {
@@ -168,7 +172,9 @@ const upload = multer({
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ];
     if (allow.includes(file.mimetype)) return cb(null, true);
-    const byExt = /\.(pdf|png|jpe?g|docx?|xlsx?)$/i.test(file.originalname || "");
+    const byExt = /\.(pdf|png|jpe?g|docx?|xlsx?)$/i.test(
+      file.originalname || ""
+    );
     return cb(byExt ? null : new Error("Tipo de archivo no permitido"), byExt);
   },
 });
@@ -182,7 +188,13 @@ function withTimestamp(name) {
   return /^\d{10,14}-/.test(name) ? name : `${Date.now()}-${name}`;
 }
 function extToMime(ext) {
-  const map = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif" };
+  const map = {
+    pdf: "application/pdf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+  };
   return map[(ext || "").toLowerCase()] || "application/octet-stream";
 }
 async function sftpConnect() {
@@ -259,52 +271,64 @@ function ensureAuthOrRedirect(req, res, next) {
 
 /* =================== Rutas de archivos subidos (stream desde Hostinger) =================== */
 // PREVIEW inline
-app.get("/uploads/preview/:filename", ensureAuthOrRedirect, async (req, res) => {
-  try {
-    const reqName = path.basename(String(req.params.filename || ""));
-    const plainName = reqName.replace(/^\d{10,14}-/, "");
-    const altPlain = plainName.replace(/\s+/g, "_");
+app.get(
+  "/uploads/preview/:filename",
+  ensureAuthOrRedirect,
+  async (req, res) => {
+    try {
+      const reqName = path.basename(String(req.params.filename || ""));
+      const plainName = reqName.replace(/^\d{10,14}-/, "");
+      const altPlain = plainName.replace(/\s+/g, "_");
 
-    // Valida contra BD y resuelve el nombre REAL
-    const [rows] = await pool.query(
-      `SELECT seq, responsable, archivo_ruta
+      // Valida contra BD y resuelve el nombre REAL
+      const [rows] = await pool.query(
+        `SELECT seq, responsable, archivo_ruta
          FROM respuestas_formulario
         WHERE archivo_ruta IN (?, ?, ?)
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
         LIMIT 1`,
-      [`/uploads/${reqName}`, `/uploads/${plainName}`, `/uploads/${altPlain}`, plainName, altPlain]
-    );
-    if (!rows.length) return res.status(404).send("No encontrado");
+        [
+          `/uploads/${reqName}`,
+          `/uploads/${plainName}`,
+          `/uploads/${altPlain}`,
+          plainName,
+          altPlain,
+        ]
+      );
+      if (!rows.length) return res.status(404).send("No encontrado");
 
-    const rol = Number(req.session.rol_id);
-    const uid = Number(req.session.userId);
-    if (rol === 3 && Number(rows[0].responsable) !== uid) {
-      return res.status(403).send("No autorizado");
+      const rol = Number(req.session.rol_id);
+      const uid = Number(req.session.userId);
+      if (rol === 3 && Number(rows[0].responsable) !== uid) {
+        return res.status(403).send("No autorizado");
+      }
+
+      const realFile = path.posix.basename(rows[0].archivo_ruta || reqName);
+      const remoteAbs = path.posix.join(process.env.SFTP_BASE_DIR, realFile);
+
+      const ext = path.extname(realFile).slice(1);
+      res.setHeader("Content-Type", extToMime(ext));
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(
+          plainName
+        )}`
+      );
+      res.setHeader("Cache-Control", "private, no-store");
+
+      try {
+        const st = await sftpStat(remoteAbs);
+        if (st && st.size) res.setHeader("Content-Length", st.size);
+      } catch {}
+
+      await sftpPipeToRes(remoteAbs, res);
+    } catch (e) {
+      console.error("GET /uploads/preview error:", e);
+      res.status(500).send("Error");
     }
-
-    const realFile = path.posix.basename(rows[0].archivo_ruta || reqName);
-    const remoteAbs = path.posix.join(process.env.SFTP_BASE_DIR, realFile);
-
-    const ext = path.extname(realFile).slice(1);
-    res.setHeader("Content-Type", extToMime(ext));
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(plainName)}`
-    );
-    res.setHeader("Cache-Control", "private, no-store");
-
-    try {
-      const st = await sftpStat(remoteAbs);
-      if (st && st.size) res.setHeader("Content-Length", st.size);
-    } catch {}
-
-    await sftpPipeToRes(remoteAbs, res);
-  } catch (e) {
-    console.error("GET /uploads/preview error:", e);
-    res.status(500).send("Error");
   }
-});
+);
 
 // DESCARGA (attachment)
 app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
@@ -320,7 +344,13 @@ app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
            OR archivo_ruta LIKE CONCAT('/uploads/%-', ?)
         LIMIT 1`,
-      [`/uploads/${reqName}`, `/uploads/${plainName}`, `/uploads/${altPlain}`, plainName, altPlain]
+      [
+        `/uploads/${reqName}`,
+        `/uploads/${plainName}`,
+        `/uploads/${altPlain}`,
+        plainName,
+        altPlain,
+      ]
     );
     if (!rows.length) return res.status(404).send("No encontrado");
 
@@ -337,7 +367,9 @@ app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
     res.setHeader("Content-Type", extToMime(ext));
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(plainName)}`
+      `attachment; filename="${plainName}"; filename*=UTF-8''${encodeURIComponent(
+        plainName
+      )}`
     );
     res.setHeader("Cache-Control", "private, no-store");
 
@@ -367,28 +399,38 @@ app.post("/api/login", async (req, res) => {
     );
 
     if (rows.length !== 1) {
-      return res.status(401).json({ success: false, message: "Credenciales inválidas" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Credenciales inválidas" });
     }
 
     const u = rows[0];
 
     if (u.activo !== 1) {
-      return res.status(403).json({ success: false, message: "Usuario inactivo" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Usuario inactivo" });
     }
 
     const match = await bcrypt.compare(clave, u.clave_hash);
     if (!match) {
-      return res.status(401).json({ success: false, message: "Credenciales inválidas" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Credenciales inválidas" });
     }
 
     if (!u.rol_id || !u.rol) {
-      return res.status(403).json({ success: false, message: "Usuario sin rol asignado" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Usuario sin rol asignado" });
     }
 
     req.session.regenerate((err) => {
       if (err) {
         console.error("Error al regenerar sesión:", err);
-        return res.status(500).json({ success: false, message: "Error de servidor" });
+        return res
+          .status(500)
+          .json({ success: false, message: "Error de servidor" });
       }
 
       req.session.userId = u.id;
@@ -399,7 +441,9 @@ app.post("/api/login", async (req, res) => {
       req.session.save((err2) => {
         if (err2) {
           console.error("Error al guardar sesión:", err2);
-          return res.status(500).json({ success: false, message: "Error de servidor" });
+          return res
+            .status(500)
+            .json({ success: false, message: "Error de servidor" });
         }
         return res.json({
           success: true,
@@ -437,9 +481,14 @@ app.post("/api/usuarios", ensureAuth, async (req, res) => {
     return res.status(400).json({ success: false, message: "Faltan campos" });
   }
   try {
-    const [exist] = await pool.query("SELECT id FROM usuarios WHERE usuario=?", [usuario]);
+    const [exist] = await pool.query(
+      "SELECT id FROM usuarios WHERE usuario=?",
+      [usuario]
+    );
     if (exist.length > 0) {
-      return res.status(400).json({ success: false, message: "Usuario ya existe" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Usuario ya existe" });
     }
     const clave_hash = await bcrypt.hash(clave, saltRounds);
     await pool.query(
@@ -460,7 +509,8 @@ app.get("/api/perfil", ensureAuth, async (req, res) => {
       "SELECT id, usuario, nombre, correo, rol_id, sede FROM usuarios WHERE id=?",
       [req.session.userId]
     );
-    if (!rows.length) return res.status(404).json({ success: false, message: "No encontrado" });
+    if (!rows.length)
+      return res.status(404).json({ success: false, message: "No encontrado" });
     res.json({ success: true, data: rows[0] });
   } catch (e) {
     console.error("[PERFIL]", e);
@@ -474,9 +524,10 @@ app.get("/api/usuarios-por-rol/:rol_id", ensureAuth, async (req, res) => {
     return res.status(403).json({ success: false, message: "No autorizado" });
   }
   try {
-    const [rows] = await pool.query("SELECT id,usuario,nombre FROM usuarios WHERE rol_id=?", [
-      req.params.rol_id,
-    ]);
+    const [rows] = await pool.query(
+      "SELECT id,usuario,nombre FROM usuarios WHERE rol_id=?",
+      [req.params.rol_id]
+    );
     res.json(rows);
   } catch (e) {
     console.error("[USUARIOS:POR_ROL]", e);
@@ -537,9 +588,10 @@ app.get("/api/respuestas", ensureAuth, async (req, res) => {
   const estadoQ = (req.query.estado || "").toString();
 
   try {
-    const [[u]] = await pool.query("SELECT id, rol_id FROM usuarios WHERE id=?", [
-      req.session.userId,
-    ]);
+    const [[u]] = await pool.query(
+      "SELECT id, rol_id FROM usuarios WHERE id=?",
+      [req.session.userId]
+    );
     const userId = Number(u?.id);
     const userRole = Number(u?.rol_id);
 
@@ -551,7 +603,9 @@ app.get("/api/respuestas", ensureAuth, async (req, res) => {
       if (e === "pendiente") {
         where.push("(estado IS NULL OR LOWER(estado)='pendiente')");
       } else if (e === "en gestion") {
-        where.push("(LOWER(estado)='en gestion' OR LOWER(estado)='en gestión')");
+        where.push(
+          "(LOWER(estado)='en gestion' OR LOWER(estado)='en gestión')"
+        );
       } else if (e === "resuelta") {
         where.push("LOWER(estado)='resuelta'");
       } else {
@@ -629,9 +683,10 @@ app.get("/api/respuesta/:seq", ensureAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "No encontrado" });
     }
 
-    const [[usuario]] = await pool.query("SELECT id, rol_id FROM usuarios WHERE id=?", [
-      req.session.userId,
-    ]);
+    const [[usuario]] = await pool.query(
+      "SELECT id, rol_id FROM usuarios WHERE id=?",
+      [req.session.userId]
+    );
     const rolNum = Number(usuario?.rol_id);
     const uid = Number(usuario?.id);
 
@@ -644,7 +699,9 @@ app.get("/api/respuesta/:seq", ensureAuth, async (req, res) => {
     return res.json(rows[0]);
   } catch (e) {
     console.error("GET /api/respuesta/:seq error:", e);
-    return res.status(500).json({ success: false, message: "Error de servidor" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Error de servidor" });
   }
 });
 
@@ -668,7 +725,9 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
       if (estadoQ === "pendiente") {
         where.push("(estado IS NULL OR LOWER(estado)='pendiente')");
       } else if (estadoQ === "en gestion") {
-        where.push("(LOWER(estado)='en gestion' OR LOWER(estado)='en gestión')");
+        where.push(
+          "(LOWER(estado)='en gestion' OR LOWER(estado)='en gestión')"
+        );
       } else if (estadoQ === "resuelta") {
         where.push("LOWER(estado)='resuelta'");
       } else {
@@ -781,7 +840,10 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
-    res.setHeader("Content-Disposition", `attachment; filename=respuestas_${fecha}.xlsx`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=respuestas_${fecha}.xlsx`
+    );
     res.setHeader("Cache-Control", "no-store");
 
     await workbook.xlsx.write(res);
@@ -823,14 +885,16 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
     vencido,
   } = req.body;
 
-  if (!seq) return res.status(400).json({ success: false, message: "Falta seq" });
+  if (!seq)
+    return res.status(400).json({ success: false, message: "Falta seq" });
 
   try {
     const [[respuesta]] = await pool.query(
       "SELECT estado, responsable, analista AS analista_db, area_encargada AS area_db, fecha_limite_de_rta AS flr_db FROM respuestas_formulario WHERE seq=?",
       [seq]
     );
-    if (!respuesta) return res.status(404).json({ success: false, message: "No encontrado" });
+    if (!respuesta)
+      return res.status(404).json({ success: false, message: "No encontrado" });
 
     const [[usuarioRolActual]] = await pool.query(
       "SELECT rol_id, id FROM usuarios WHERE id=?",
@@ -839,9 +903,12 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
 
     const nuevoEstadoNorm = normEstado(estado || "");
     const anteriorEstadoNorm = normEstado(respuesta.estado || "");
-    const esFinalizada = nuevoEstadoNorm === "resuelta" && anteriorEstadoNorm !== "resuelta";
-    const esReapertura = anteriorEstadoNorm === "resuelta" && nuevoEstadoNorm !== "resuelta";
-    const esEnGestionTransition = anteriorEstadoNorm === "resuelta" && nuevoEstadoNorm === "en gestion";
+    const esFinalizada =
+      nuevoEstadoNorm === "resuelta" && anteriorEstadoNorm !== "resuelta";
+    const esReapertura =
+      anteriorEstadoNorm === "resuelta" && nuevoEstadoNorm !== "resuelta";
+    const esEnGestionTransition =
+      anteriorEstadoNorm === "resuelta" && nuevoEstadoNorm === "en gestion";
 
     if (anteriorEstadoNorm === "resuelta" && nuevoEstadoNorm === "resuelta") {
       if (![1, 2, 4].includes(usuarioRolActual.rol_id)) {
@@ -851,20 +918,30 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
         });
       }
       try {
-        const [r] = await pool.execute(`UPDATE respuestas_formulario SET estado=? WHERE seq=?`, [
-          estado,
-          seq,
-        ]);
+        const [r] = await pool.execute(
+          `UPDATE respuestas_formulario SET estado=? WHERE seq=?`,
+          [estado, seq]
+        );
         if (!r.affectedRows)
-          return res.status(404).json({ success: false, message: "No encontrado" });
-        return res.json({ success: true, message: "Estado actualizado correctamente" });
+          return res
+            .status(404)
+            .json({ success: false, message: "No encontrado" });
+        return res.json({
+          success: true,
+          message: "Estado actualizado correctamente",
+        });
       } catch (e) {
         console.error("[/api/tipificar:update-estado]", e);
-        return res.status(500).json({ success: false, message: "Error de servidor" });
+        return res
+          .status(500)
+          .json({ success: false, message: "Error de servidor" });
       }
     }
 
-    if (usuarioRolActual.rol_id === 3 && Number(respuesta.responsable) !== Number(usuarioRolActual.id)) {
+    if (
+      usuarioRolActual.rol_id === 3 &&
+      Number(respuesta.responsable) !== Number(usuarioRolActual.id)
+    ) {
       return res.status(403).json({
         success: false,
         message: "No autorizado para tipificar este caso",
@@ -891,12 +968,15 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
         );
 
         if (!r.affectedRows) {
-          return res.status(404).json({ success: false, message: "No encontrado" });
+          return res
+            .status(404)
+            .json({ success: false, message: "No encontrado" });
         }
 
-        const [[info]] = await pool.query("SELECT analista FROM respuestas_formulario WHERE seq=?", [
-          seq,
-        ]);
+        const [[info]] = await pool.query(
+          "SELECT analista FROM respuestas_formulario WHERE seq=?",
+          [seq]
+        );
         if (info && info.analista) {
           const [[analistaInfo]] = await pool.query(
             "SELECT nombre, correo FROM usuarios WHERE id=?",
@@ -920,10 +1000,15 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
           }
         }
 
-        return res.json({ success: true, message: "Respuesta del responsable registrada." });
+        return res.json({
+          success: true,
+          message: "Respuesta del responsable registrada.",
+        });
       } catch (e) {
         console.error("Tipificar (rol 3):", e);
-        return res.status(500).json({ success: false, message: "Error de servidor" });
+        return res
+          .status(500)
+          .json({ success: false, message: "Error de servidor" });
       }
     }
 
@@ -1013,9 +1098,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "No encontrado" });
 
     if (esReapertura) {
-      const [[responsableInfo]] = await pool.query("SELECT nombre, correo FROM usuarios WHERE id=?", [
-        responsable,
-      ]);
+      const [[responsableInfo]] = await pool.query(
+        "SELECT nombre, correo FROM usuarios WHERE id=?",
+        [responsable]
+      );
       if (responsableInfo) {
         await transporter.sendMail({
           from: process.env.SMTP_USER,
@@ -1025,9 +1111,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
         });
       }
     } else if (esFinalizada) {
-      const [[responsableFinal]] = await pool.query("SELECT nombre, correo FROM usuarios WHERE id=?", [
-        responsable,
-      ]);
+      const [[responsableFinal]] = await pool.query(
+        "SELECT nombre, correo FROM usuarios WHERE id=?",
+        [responsable]
+      );
       if (responsableFinal) {
         await transporter.sendMail({
           from: process.env.SMTP_USER,
@@ -1037,9 +1124,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
         });
       }
     } else if (esEnGestionTransition) {
-      const [[responsableGestion]] = await pool.query("SELECT nombre, correo FROM usuarios WHERE id=?", [
-        responsable,
-      ]);
+      const [[responsableGestion]] = await pool.query(
+        "SELECT nombre, correo FROM usuarios WHERE id=?",
+        [responsable]
+      );
       if (responsableGestion) {
         await transporter.sendMail({
           from: process.env.SMTP_USER,
@@ -1050,9 +1138,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
       }
     } else {
       if (respuesta_al_area_encargada_reasignacion) {
-        const [[analistaReasig]] = await pool.query("SELECT nombre,correo FROM usuarios WHERE id=?", [
-          analista,
-        ]);
+        const [[analistaReasig]] = await pool.query(
+          "SELECT nombre,correo FROM usuarios WHERE id=?",
+          [analista]
+        );
         if (analistaReasig) {
           await transporter.sendMail({
             from: process.env.SMTP_USER,
@@ -1062,9 +1151,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
           });
         }
       } else if (pregunta_reasignacion === "SI") {
-        const [[responsableReasig]] = await pool.query("SELECT nombre,correo FROM usuarios WHERE id=?", [
-          responsable,
-        ]);
+        const [[responsableReasig]] = await pool.query(
+          "SELECT nombre,correo FROM usuarios WHERE id=?",
+          [responsable]
+        );
         if (responsableReasig) {
           await transporter.sendMail({
             from: process.env.SMTP_USER,
@@ -1074,9 +1164,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
           });
         }
       } else if (respuesta_al_area_encargada) {
-        const [[analistaInicial]] = await pool.query("SELECT nombre,correo FROM usuarios WHERE id=?", [
-          analista,
-        ]);
+        const [[analistaInicial]] = await pool.query(
+          "SELECT nombre,correo FROM usuarios WHERE id=?",
+          [analista]
+        );
         if (analistaInicial) {
           await transporter.sendMail({
             from: process.env.SMTP_USER,
@@ -1101,7 +1192,10 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
       }
     }
 
-    res.json({ success: true, message: "Tipificación y notificaciones completadas" });
+    res.json({
+      success: true,
+      message: "Tipificación y notificaciones completadas",
+    });
   } catch (e) {
     console.error("[/api/tipificar]", e);
     res.status(500).json({ success: false, message: "Error de servidor" });
@@ -1109,10 +1203,16 @@ app.post("/api/tipificar", ensureAuth, async (req, res) => {
 });
 
 // Enviar mensaje al paciente (adjunto desde memoria)
+// arriba, cerca de tus otros requires de multer:
+const uploadMem = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 app.post(
   "/api/enviar-paciente",
   ensureAuth,
-  upload.single("archivoAdjunto"),
+  uploadMem.single("archivoAdjunto"), // ⬅️ memoria, NO disco
   async (req, res) => {
     if (![1, 2].includes(req.session.rol_id)) {
       return res.status(403).json({ success: false, message: "No autorizado" });
@@ -1121,10 +1221,12 @@ app.post(
     if (!seq || !mensaje) {
       return res.status(400).json({ success: false, message: "Falta seq o mensaje" });
     }
+
     try {
-      const [[yo]] = await pool.query("SELECT nombre, correo FROM usuarios WHERE id=?", [
-        req.session.userId,
-      ]);
+      const [[yo]] = await pool.query(
+        "SELECT nombre, correo FROM usuarios WHERE id=?",
+        [req.session.userId]
+      );
       const analistaNombre = yo?.nombre || req.session.nombre || "Equipo MTD";
       const analistaCorreo = yo?.correo || process.env.SMTP_USER;
 
@@ -1175,30 +1277,33 @@ Gracias por comunicarse con nosotros.`;
         </p>
 
         <div style="text-align:left; margin:16px 0;">
-          <img
-            src="cid:mtd-logo"
-            alt="MTD"
-            width="900"
-            style="display:block;width:900px;max-width:100%;height:auto;margin:0;"
-          />
+          <img src="cid:mtd-logo" alt="MTD" width="900" style="display:block;width:900px;max-width:100%;height:auto;margin:0;" />
         </div>
       </div>`;
 
+      // --- ADJUNTOS ---
       const attachments = [];
+
+      // 1) Adjunto que sube el analista (en memoria)
       if (req.file) {
         attachments.push({
           filename: req.file.originalname,
-          content: req.file.buffer, // desde memoria
+          content: req.file.buffer, // viene de memoryStorage
         });
       }
-      const firmaPath = path.join(__dirname, "public", "auth", "files", "Firma de PQRS.jpg");
-      if (fs.existsSync(firmaPath)) {
+
+      // 2) Firma inline (CID) — una sola vez
+      try {
+        const firmaPath = path.join(__dirname, "public", "auth", "files", "Firma de PQRS.jpg");
+        const firmaBuf = fs.readFileSync(firmaPath);
         attachments.push({
-          filename: "Firma de PQRS.jpg",
-          path: firmaPath,
-          cid: "mtd-logo",
+          filename: "firma-pqrs.jpg",
+          content: firmaBuf,
+          cid: "mtd-logo",        // debe coincidir con el HTML
           contentType: "image/jpeg",
         });
+      } catch (e) {
+        console.warn("Firma inline no encontrada, se envía sin imagen:", e.message);
       }
 
       await transporter.sendMail({
@@ -1217,6 +1322,7 @@ Gracias por comunicarse con nosotros.`;
     }
   }
 );
+
 
 // Estadísticas PQRS
 app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
@@ -1242,11 +1348,13 @@ app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
       params
     );
     const [[resueltas]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='resuelta'" + extra,
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE LOWER(estado)='resuelta'" +
+        extra,
       params
     );
     const [[vencido]] = await pool.query(
-      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE vencido='SI'" + extra,
+      "SELECT COUNT(*) AS count FROM respuestas_formulario WHERE vencido='SI'" +
+        extra,
       params
     );
     const [[total]] = await pool.query(
@@ -1273,14 +1381,18 @@ app.get("/api/buscar-usuario", ensureAuth, async (req, res) => {
     return res.status(403).json({ success: false, message: "No autorizado" });
   }
   const { q } = req.query;
-  if (!q) return res.status(400).json({ success: false, message: "Falta query de búsqueda" });
+  if (!q)
+    return res
+      .status(400)
+      .json({ success: false, message: "Falta query de búsqueda" });
   const [rows] = await pool.query(
     `SELECT id, usuario, nombre, correo, rol_id, sede, activo
      FROM usuarios
      WHERE usuario = ? OR correo = ? OR nombre LIKE ?`,
     [q, q, `%${q}%`]
   );
-  if (!rows.length) return res.status(404).json({ success: false, message: "No encontrado" });
+  if (!rows.length)
+    return res.status(404).json({ success: false, message: "No encontrado" });
   res.json(rows[0]);
 });
 
@@ -1294,9 +1406,16 @@ app.patch("/api/inactivar-usuario/:id", ensureAuth, async (req, res) => {
   if (typeof activo === "undefined") {
     return res.status(400).json({ success: false, message: "Falta estado" });
   }
-  const [r] = await pool.query("UPDATE usuarios SET activo=? WHERE id=?", [activo ? 1 : 0, id]);
-  if (!r.affectedRows) return res.status(404).json({ success: false, message: "No encontrado" });
-  res.json({ success: true, message: activo ? "Usuario activado" : "Usuario inactivado" });
+  const [r] = await pool.query("UPDATE usuarios SET activo=? WHERE id=?", [
+    activo ? 1 : 0,
+    id,
+  ]);
+  if (!r.affectedRows)
+    return res.status(404).json({ success: false, message: "No encontrado" });
+  res.json({
+    success: true,
+    message: activo ? "Usuario activado" : "Usuario inactivado",
+  });
 });
 
 // Modificar datos personales
@@ -1306,7 +1425,9 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
   }
   const { nombre, correo, rol_id, sede } = req.body;
   if (!nombre || !correo || !rol_id || !sede) {
-    return res.status(400).json({ success: false, message: "Faltan campos obligatorios" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Faltan campos obligatorios" });
   }
   try {
     const [r] = await pool.query(
@@ -1314,7 +1435,9 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
       [nombre, correo, rol_id, sede, req.params.id]
     );
     if (!r.affectedRows) {
-      return res.status(404).json({ success: false, message: "Usuario no encontrado" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Usuario no encontrado" });
     }
     res.json({ success: true, message: "Usuario actualizado" });
   } catch (e) {
@@ -1324,7 +1447,11 @@ app.patch("/api/usuarios/:id", ensureAuth, async (req, res) => {
 });
 
 /* =================== Estáticos =================== */
-app.use("/dashboard", gateDashboard, express.static(path.join(__dirname, "public/dashboard")));
+app.use(
+  "/dashboard",
+  gateDashboard,
+  express.static(path.join(__dirname, "public/dashboard"))
+);
 app.use("/auth/dashboard", (req, res) => res.redirect(302, "/dashboard/"));
 app.use("/auth", express.static(path.join(__dirname, "public/auth")));
 app.use("/", express.static(path.join(__dirname, "public/form")));
@@ -1332,7 +1459,9 @@ app.use("/", express.static(path.join(__dirname, "public/form")));
 /* =================== Errores =================== */
 app.use((err, req, res, next) => {
   if (err && err.message === "CORS blocked") {
-    return res.status(403).json({ success: false, message: "Origen no permitido por CORS" });
+    return res
+      .status(403)
+      .json({ success: false, message: "Origen no permitido por CORS" });
   }
   if (err && err.message === "Tipo de archivo no permitido") {
     return res.status(400).json({ success: false, message: err.message });
