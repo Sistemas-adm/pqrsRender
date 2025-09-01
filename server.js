@@ -1194,7 +1194,7 @@ Gracias por comunicarse con nosotros.`;
       const firmaPath = path.join(__dirname, "public", "auth", "files", "Firma de PQRS.jpg");
       if (fs.existsSync(firmaPath)) {
         attachments.push({
-          filename: "firma-pqrs.jpg",
+          filename: "Firma de PQRS.jpg",
           path: firmaPath,
           cid: "mtd-logo",
           contentType: "image/jpeg",
