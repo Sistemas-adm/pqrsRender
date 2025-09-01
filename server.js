@@ -1370,6 +1370,7 @@ Gracias por comunicarse con nosotros.`;
 );
 
 
+
 // Estadísticas PQRS
 app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
   try {
