@@ -13,6 +13,7 @@ const bcrypt = require("bcrypt");
 const ExcelJS = require("exceljs");
 const helmet = require("helmet");
 const SFTPClient = require("ssh2-sftp-client"); // <-- nuevo
+const rateLimit = require("express-rate-limit");
 
 const saltRounds = 10;
 const app = express();
@@ -57,6 +58,14 @@ if (process.env.UPLOADS_CROSS_ORIGIN === "1") {
   helmetOptions.crossOriginResourcePolicy = { policy: "cross-origin" };
 }
 app.use(helmet(helmetOptions));
+
+const loginLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutos
+  max: 5,                   // 5 intentos por IP/ventana
+  standardHeaders: true,    // X-RateLimit-*
+  legacyHeaders: false,     // desactiva X-RateLimit-Remaining (legacy)
+  message: { success: false, message: "Demasiados intentos. Inténtalo más tarde." }
+});
 
 /* =================== DB & Session Store =================== */
 const sessionStore = new MySQLStore({
@@ -386,7 +395,7 @@ app.get("/uploads/:filename", ensureAuthOrRedirect, async (req, res) => {
 });
 
 /* =================== Auth: Login / Logout =================== */
-app.post("/api/login", async (req, res) => {
+app.post("/api/login", loginLimiter, async (req, res) => {
   const { usuario, clave } = req.body;
 
   try {
@@ -752,10 +761,7 @@ app.get("/api/exportar-respuestas", ensureAuth, async (req, res) => {
       params.push(`${fecha_hasta} 23:59:59`);
     }
 
-    if (rol === 3) {
-      where.push("responsable = ?");
-      params.push(uid);
-    }
+    
 
     let sql = `
       SELECT rf.*, u.nombre AS enviado_por_nombre
