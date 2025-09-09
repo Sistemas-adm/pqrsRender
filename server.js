@@ -1434,25 +1434,51 @@ app.get("/api/estadisticas-pqrs", ensureAuth, async (req, res) => {
 });
 
 // Buscar usuario
+// Buscar usuario
 app.get("/api/buscar-usuario", ensureAuth, async (req, res) => {
   if (![1, 2].includes(req.session.rol_id)) {
     return res.status(403).json({ success: false, message: "No autorizado" });
   }
+
   const { q } = req.query;
-  if (!q)
+  if (!q) {
     return res
       .status(400)
       .json({ success: false, message: "Falta query de búsqueda" });
-  const [rows] = await pool.query(
-    `SELECT id, usuario, nombre, correo, rol_id, sede, activo
-     FROM usuarios
-     WHERE usuario = ? OR correo = ? OR nombre LIKE ?`,
-    [q, q, `%${q}%`]
-  );
-  if (!rows.length)
-    return res.status(404).json({ success: false, message: "No encontrado" });
-  res.json(rows[0]);
+  }
+
+  try {
+    // Búsqueda normal
+    let sql = `
+      SELECT id, usuario, nombre, correo, rol_id, sede, activo
+      FROM usuarios
+      WHERE (usuario = ? OR correo = ? OR nombre LIKE ?)
+    `;
+    const params = [q, q, `%${q}%`];
+
+    // Si quien busca es ANALISTA (rol 2) -> oculta admins (rol 1)
+    if (req.session.rol_id === 2) {
+      sql += " AND rol_id <> 1";
+    }
+
+    const [rows] = await pool.query(sql, params);
+
+    if (!rows.length) {
+      // Devolvemos 404 para no filtrar existencia de admins
+      return res
+        .status(404)
+        .json({ success: false, message: "No encontrado" });
+    }
+
+    return res.json(rows[0]);
+  } catch (e) {
+    console.error("[BUSCAR-USUARIO]", e);
+    return res
+      .status(500)
+      .json({ success: false, message: "Error de servidor" });
+  }
 });
+
 
 // Activar/Inactivar usuario
 app.patch("/api/inactivar-usuario/:id", ensureAuth, async (req, res) => {
